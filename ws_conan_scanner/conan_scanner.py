@@ -1,0 +1,429 @@
+import argparse
+import concurrent
+import json
+import logging
+import os
+import pathlib
+import re
+import subprocess
+from collections import defaultdict
+from concurrent.futures.thread import ThreadPoolExecutor
+from configparser import ConfigParser
+from datetime import datetime
+from pathlib import Path
+from ws_conan_scanner._version import __tool_name__, __version__, __description__
+import requests
+import sys
+import time
+import ws_sdk
+import yaml
+
+logging.basicConfig(level=logging.DEBUG if os.environ.get("DEBUG") else logging.INFO,
+                    handlers=[logging.StreamHandler(stream=sys.stdout)],
+                    format='%(levelname)s %(asctime)s %(thread)d %(name)s: %(message)s',
+                    datefmt='%y-%m-%d %H:%M:%S')
+
+# Config file variables
+DEFAULT_CONFIG_FILE = 'params.config'
+CONFIG_FILE_HEADER_NAME = 'DEFAULT'
+
+# Environment variables
+WS_PREFIX = 'WS_'
+WS_ENV_VARS = [WS_PREFIX + sub for sub in ('WS_URL', 'USER_KEY', 'ORG_TOKEN', 'PROJECT_PARALLELISM_LEVEL', 'PROJECT_PATH', 'PROJECT_BUILD_FOLDER_PATH')]
+
+# Agent info variables
+agent_info = 'agentInfo'
+PS = 'ps-'
+agent_info_details = {'agent': PS + __tool_name__.replace('_', '-'), 'agentVersion': __version__}
+
+# API calls parameters
+get_project_source_file_inventory_report = 'getProjectSourceFileInventoryReport'
+get_project_inventory_report = 'getProjectInventoryReport'
+get_request_state = 'getRequestState'
+change_origin_library = 'changeOriginLibrary'
+library_search = 'librarySearch'
+REQUEST_TYPE = 'requestType'
+
+USER_KEY = 'userKey'
+PROJECT_TOKEN = 'projectToken'
+PRODUCT_TOKEN = 'productToken'
+PROJECT_NAME = 'projectName'
+PRODUCT_NAME = 'productName'
+ORG_TOKEN = 'orgToken'
+PROJECT_PATH = 'projectPath'
+PROJECT_BUILD_FOLDER_PATH = 'projectBuildFolderPath'
+
+api_version = '/api/v1.3'
+WS_URL = 'wsUrl'
+config = dict()
+PROJECT_PARALLELISM_LEVEL = 'projectParallelismLevel'
+PROJECT_PARALLELISM_LEVEL_MAX_VALUE = 20
+PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE = 9
+PROJECT_PARALLELISM_LEVEL_RANGE = list(range(1, PROJECT_PARALLELISM_LEVEL_MAX_VALUE + 1))
+
+WS_LOGO_URL = 'https://whitesource-resources.s3.amazonaws.com/ws-sig-images/Whitesource_Logo_178x44.png'
+CONAN_FILE_TXT = 'conanfile.txt'
+CONAN_FILE_PY = 'conanfile.py'
+
+
+# 1. validate conan is installed
+def validate_conan_local_cache_folder():
+    conan_home = subprocess.Popen("conan config home", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0]
+    converted_list = []
+
+    for element in conan_home:
+        if '\n' in element:
+            break
+        else:
+            converted_list.append(element)
+    conan_home = ''.join(converted_list)
+    if os.path.exists(conan_home):
+        logging.info(f"The conan home folder is located at : {conan_home} ")
+    else:
+        logging.error(f"Please check conan is installed and configured properly ")
+        sys.exit(1)
+
+
+# 2. validate conan project path
+def validate_project_manifest_file_exists():
+    logging.info(f"Checking if the conan manifest file exists in your environment.")
+
+    if os.path.exists(os.path.join(config['project_path'], CONAN_FILE_TXT)):
+        logging.info(f"The {CONAN_FILE_TXT}  manifest file exists in your environment.")
+    elif os.path.exists(os.path.join(config['project_path'], CONAN_FILE_PY)):
+        logging.info(f"The {CONAN_FILE_PY} manifest file exists in your environment.")
+    else:
+        logging.error(f"The did not find supported manifest file.")
+        sys.exit(1)
+
+
+# 2.conan install
+def run_conan_install_command():
+    # Todo add configuration for user input of the build / insatll folder + prestep enabled / disabled
+    config['temp_dir'] = Path(config['project_path'], datetime.now().strftime('%Y%m%d%H%M%S%f'))
+    os.mkdir(config['temp_dir'])
+    os.system(f"conan install {config['project_path']} --install-folder {config['temp_dir']} ")
+
+
+# 3.list all dependencies with: conan info DIR_CONTAINING_CONANFILE --paths --json TEMP_JSON_PATH
+def list_all_dependencies():
+    deps_json_file = os.path.join(config['temp_dir'], 'deps.json')
+    os.system(f"conan info {config['project_path']} --paths  --json {deps_json_file}  ")
+    deps_data = json.load(open(deps_json_file))
+    output_json = [x for x in deps_data if x.get('revision') is not None]  # filter items which have the revision tag
+    return output_json
+
+
+# 5. curl each file from each dependency / conanfile.py / conandata.yml
+def download_source_files(json_data):
+    packages_list = []
+    counter = 0
+
+    config['directory'] = os.path.join(config['temp_dir'], "temp_deps")
+    os.mkdir(config['directory'])
+
+    for item in json_data:
+        export_folder = item.get('export_folder')
+
+        if export_folder is not None:
+            packages_list.append({item.get('reference').split('/')[0]: item.get('reference').split('/')[1]})
+        temp = packages_list[counter]
+        key = list(temp)[0]
+        value = str(temp[key])
+        package_directory = os.path.join(config['directory'], key, value)  # replace forward's '/' of with dash '-' as this is more similar to whitesource library names convention
+        pathlib.Path(package_directory).mkdir(parents=True, exist_ok=True)
+
+        dependency_source = os.path.join(export_folder, 'conandata.yml')  # Check for conandata.yml file
+        if os.path.exists(dependency_source):
+            download_and_extract_source(dependency_source, package_directory, packages_list[counter])
+
+        elif os.path.exists(os.path.join(export_folder, 'conanfile.py')):  # get conandata.yml from conanfile.py
+            os.system(f"conan source --source-folder {package_directory} --install-folder {config['temp_dir']} {export_folder}")
+            download_and_extract_source(package_directory, package_directory, packages_list[counter])
+
+        else:
+            logging.warning(f"{packages_list[counter]} source files were not found")
+        counter += 1
+
+    return packages_list
+
+
+def download_and_extract_source(source, directory, package_name):
+    try:
+        a_yaml_file = open(source)
+        parsed_yaml_file = yaml.load(a_yaml_file, Loader=yaml.FullLoader)
+        temp = parsed_yaml_file['sources']
+        for key, value in temp.items():
+            url = value['url']
+            if isinstance(url, list):  # for cases when the yml file has url with multiple links --> we will take the 1st in order
+                url = url[0]
+            r = requests.get(url, allow_redirects=True, headers={'Cache-Control': 'no-cache'})
+            open(os.path.join(directory, os.path.basename(url)), 'wb').write(r.content)
+    except (FileNotFoundError, PermissionError):
+        logging.error(f"Could not download source files for {package_name} as conandata.yml was not found")
+
+
+# 7.scan project and list all source files from the scan.
+def scan_with_unified_agent():
+    unified_agent = ws_sdk.WSClient(user_key=config['user_key'], token=config['org_token'], url=config['ws_url'], ua_path=config['project_path'])
+    # unified_agent.ua_conf.includes=
+    unified_agent.ua_conf.archiveExtractionDepth = '7'
+    unified_agent.ua_conf.archiveIncludes = '**/*.*'  # Todo change to includes=**/*.*
+    logging.getLogger().setLevel(logging.DEBUG)  # Instead of debug log level for the entire script
+    support_token = unified_agent.scan(scan_dir=config['directory'], product_token=config['product_token'], project_token=config['project_token'])
+    support_token = support_token[1].split('\n')  # list the scan log
+    for line in support_token:
+        if re.search('Support Token:', line):
+            line = list(line.split(" "))
+            support_token = line[7].rstrip()
+            break
+    logging.getLogger().setLevel(logging.INFO)
+
+    scan_status = True
+    while scan_status:
+        new_status = get_scan_status(support_token)['requestState']
+        if new_status in ['UPDATED', 'FINISHED']:
+            logging.info('scan upload completed')
+            scan_status = False
+        elif new_status in ['UNKNOWN', 'FAILED']:
+            logging.warning('scan failed to upload...exiting program')
+            sys.exit(1)
+        else:
+            logging.info('scan result is being uploaded...')
+            time.sleep(7.0)
+
+
+def get_scan_status(support_token):
+    status = post_request(get_request_state, ORG_TOKEN, config['org_token'], {'requestToken': support_token})
+    logging.info(status)  # for Debugging
+    return status
+
+
+# 8.change source files to a library per 3-4 ( API - changeOriginLibrary)
+def match_project_source_file_inventory(packages):
+    project_source_files_inventory = get_some_api(config['project_token'], get_project_source_file_inventory_report)
+    project_source_files_inventory = project_source_files_inventory['sourceFiles']
+
+    packages_and_source_files_sha1 = defaultdict(list)
+    for package in packages:
+        package_name = list(package.keys())[0]
+        package_full_name = package_name + '-' + package[package_name]
+
+        for source_file in project_source_files_inventory:
+            if package_full_name in source_file['path']:  # Todo fix for sqlite
+                packages_and_source_files_sha1[json.dumps(package)].append(source_file['sha1'])
+
+    counter = 0
+
+    for package, sha1s in packages_and_source_files_sha1.items():
+        package = json.loads(package)
+        library_name = list(package.keys())[0]
+        library_version = package[library_name]
+        library_search_result = library_search_api(config['org_token'], library_search, list(package.keys())[0])
+
+        no_match = True
+        for library in library_search_result['libraries']:
+            statements=[
+            ]
+            if library['type'] == 'Source Library':
+                if library_name == library['artifactId'] and library_version == library['version']:
+                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
+                    counter += 1
+                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
+                    no_match = False
+                    break
+                if library_name == library['artifactId'] and library_version in library['version']:
+                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
+                    counter += 1
+                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
+                    no_match = False
+                    break
+                if library_name in library['artifactId'] and library_version in library['version']:
+                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
+                    counter += 1
+                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
+                    no_match = False
+                    break
+                if library_name in library['artifactId'] and library_version == library['version']:
+                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
+                    counter += 1
+                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
+                    no_match = False
+                    break
+        if no_match:
+            logging.info(f" Did not find match for {package} package source files.")
+
+
+def threads_worker(org_projects_vitals, ws_api_call):
+    data_list = []
+    with ThreadPoolExecutor(max_workers=int(config['project_parallelism_level'])) as executor:
+        response = {executor.submit(get_some_api, project['token'], project['name'], ws_api_call): [project['token'], project['name'], ws_api_call] for project in org_projects_vitals['projectVitals']}
+        for future in concurrent.futures.as_completed(response):
+            data_list.append(future.result())
+    return data_list
+
+
+#  ================= API calls section Start =================
+def get_some_api(project_token, api_call):
+    response = post_request(api_call, PROJECT_TOKEN, project_token, {'format': 'json'})
+    return response
+
+
+def change_origin_library_api(org_token, api_call, uuid, source_files, user_comments):
+    response = post_request(api_call, ORG_TOKEN, org_token, {'targetKeyUuid': uuid, 'sourceFiles': source_files, 'userComments': user_comments})
+    return response
+
+
+def library_search_api(org_token, api_call, search_value):
+    response = post_request(api_call, ORG_TOKEN, org_token, {'searchValue': search_value})
+    return response
+
+
+def post_request(request_type, token_type, token, additional_values):
+    logging.debug("Using '%s' API", request_type)
+    headers = {'Content-Type': 'application/json', 'Accept-Charset': 'utf-8'}
+    body = {agent_info: agent_info_details,
+            REQUEST_TYPE: request_type,
+            USER_KEY: config['user_key'],
+            token_type: token}
+    body.update(additional_values)
+    body2string = json.dumps(body)
+    response_beta = requests.post(config['ws_url'] + api_version, data=body2string.encode('utf-8'), headers=headers)
+    logging.debug("Finish using '%s' API", request_type)
+    response_object = json.loads(response_beta.text)
+    check_errors_in_response(response_object)
+    return response_object
+
+
+def check_errors_in_response(response):
+    error = False
+    if 'errorCode' in response:
+        logging.error('Error code: %s', response['errorCode'])
+        error = True
+    if 'errorMessage' in response:
+        if 'occupied' in response['errorMessage']:
+            error = False
+        else:
+            logging.error('Error message: %s', response['errorMessage'])
+            error = True
+    if error:
+        logging.error('Status: FAILURE')
+        sys.exit(1)
+
+
+# ================= API calls section End =================
+
+def get_args(arguments) -> dict:
+    """Get configuration arguments"""
+
+    logging.info('Start analyzing arguments.')
+    parser = argparse.ArgumentParser(description='argument parser')
+
+    parser.add_argument('-c', '--configFile', help='The config file', required=False, dest='conf_f')
+    is_config_file = bool(arguments[0] in ['-c', '--configFile'])
+
+    parser.add_argument('-d', "--" + PROJECT_PATH, help="The directory which contain the conanfile.txt path", type=Path, required=not is_config_file, dest='project_path')
+
+    parser.add_argument('-u', '--' + WS_URL, help='The organization url', required=not is_config_file, dest='ws_url')
+    parser.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=not is_config_file, dest='user_key')
+    parser.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=not is_config_file, dest='org_token')
+    parser.add_argument('--' + PRODUCT_TOKEN, help='The product token', required=not is_config_file, dest='product_token')
+    parser.add_argument('--' + PROJECT_TOKEN, help='The project token', required=not is_config_file, dest='project_token')
+    # parser.add_argument('--' + PRODUCT_NAME, help='The product name', required=not is_config_file, dest='product_name')
+    # parser.add_argument('--' + PROJECT_NAME, help='The project name', required=not is_config_file, dest='project_name')
+    parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
+
+    args = parser.parse_args()
+
+    if args.conf_f is None:
+        args_dict = vars(args)
+        args_dict.update(get_config_parameters_from_environment_variables())
+
+    elif os.path.exists(args.conf_f):
+        logging.info(f'Using {args.conf_f} , additional arguments from the CLI will be ignored')
+        args_dict = get_config_file(args.conf_f)
+    else:
+        logging.error("Config file doesn't exists")
+        sys.exit(1)
+
+    logging.info('Finished analyzing arguments.')
+    return args_dict
+
+
+def get_config_file(config_file) -> dict:
+    conf_file = ConfigParser()
+    conf_file.read(config_file)
+
+    logging.info('Start analyzing config file.')
+    conf_file_dict = {
+        'project_path': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_PATH),
+        'ws_url': conf_file[CONFIG_FILE_HEADER_NAME].get(WS_URL),
+        'user_key': conf_file[CONFIG_FILE_HEADER_NAME].get(USER_KEY),
+        'org_token': conf_file[CONFIG_FILE_HEADER_NAME].get(ORG_TOKEN),
+        'product_token': conf_file[CONFIG_FILE_HEADER_NAME].get(PRODUCT_TOKEN),
+        'project_token': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_TOKEN),
+        # 'product_name': conf_file[CONFIG_FILE_HEADER_NAME].get(PRODUCT_TOKEN),
+        # 'project_name': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_NAME),
+        'project_parallelism_level': conf_file[CONFIG_FILE_HEADER_NAME].getint(PROJECT_PARALLELISM_LEVEL, fallback=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE)
+    }
+
+    check_if_config_project_parallelism_level_is_valid(conf_file_dict['project_parallelism_level'])
+
+    conf_file_dict.update(get_config_parameters_from_environment_variables())
+
+    for key, value in conf_file_dict.items():
+        if value is None:
+            logging.error(f'Please check your {key} parameter-it is missing from the config file')
+            sys.exit(1)
+
+    logging.info('Finished analyzing the config file.')
+
+    return conf_file_dict
+
+
+def get_config_parameters_from_environment_variables() -> dict:
+    os_env_variables = dict(os.environ)
+    ws_env_vars_dict = {}
+    for variable in WS_ENV_VARS:
+        if variable in os_env_variables:
+            logging.info(f'found {variable} environment variable - will use its value')
+            ws_env_vars_dict[variable[len(WS_PREFIX):].lower()] = os_env_variables[variable]
+
+            if variable == 'WS_PROJECT_PARALLELISM_LEVEL':
+                check_if_config_project_parallelism_level_is_valid(ws_env_vars_dict['project_parallelism_level'])
+
+    return ws_env_vars_dict
+
+
+def check_if_config_project_parallelism_level_is_valid(parallelism_level):
+    if int(parallelism_level) not in PROJECT_PARALLELISM_LEVEL_RANGE:
+        logging.error(f'The selected {PROJECT_PARALLELISM_LEVEL} <{parallelism_level}> is not valid')
+        sys.exit(1)
+
+
+def read_setup():
+    """reads the configuration from cli / config file and updates in a global config."""
+
+    global config
+    args = sys.argv[1:]
+    if len(args) > 0:
+        config = get_args(args)
+    elif os.path.isfile(DEFAULT_CONFIG_FILE):  # used mainly when running the script from an IDE -> same path of CONFIG_FILE (params.config)
+        config = get_config_file(DEFAULT_CONFIG_FILE)
+    else:
+        config = get_config_parameters_from_environment_variables()
+
+
+def main():
+    read_setup()
+    validate_conan_local_cache_folder()
+    validate_project_manifest_file_exists()
+    run_conan_install_command()
+    dependencies_list = list_all_dependencies()
+    packages = download_source_files(dependencies_list)
+    scan_with_unified_agent()
+    match_project_source_file_inventory(packages)
+
+
+if __name__ == '__main__':
+    main()
