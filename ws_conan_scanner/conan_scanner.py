@@ -371,7 +371,7 @@ def get_config_file(config_file) -> dict:
     logging.info('Start analyzing config file.')
     conf_file_dict = {
         'project_path': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_PATH),
-        'find_match_for_reference': conf_file[CONFIG_FILE_HEADER_NAME].get(FIND_MATCH_FOR_REFERENCE),
+        'find_match_for_reference': conf_file[CONFIG_FILE_HEADER_NAME].getboolean(FIND_MATCH_FOR_REFERENCE),
         'ws_url': conf_file[CONFIG_FILE_HEADER_NAME].get(WS_URL),
         'user_key': conf_file[CONFIG_FILE_HEADER_NAME].get(USER_KEY),
         'org_token': conf_file[CONFIG_FILE_HEADER_NAME].get(ORG_TOKEN),
@@ -403,7 +403,8 @@ def get_config_parameters_from_environment_variables() -> dict:
         if variable in os_env_variables:
             logging.info(f'found {variable} environment variable - will use its value')
             ws_env_vars_dict[variable[len(WS_PREFIX):].lower()] = os_env_variables[variable]
-
+            if variable == 'WS_FIND_MATCH_FOR_REFERENCE':
+                ws_env_vars_dict.update({'find_match_for_reference': str2bool(ws_env_vars_dict['find_match_for_reference'])})  # to assign boolean instead of string
             if variable == 'WS_PROJECT_PARALLELISM_LEVEL':
                 check_if_config_project_parallelism_level_is_valid(ws_env_vars_dict['project_parallelism_level'])
 
@@ -440,7 +441,7 @@ def main():
     dependencies_list = list_all_dependencies()
     packages = download_source_files(dependencies_list)
     scan_with_unified_agent()
-    if FIND_MATCH_FOR_REFERENCE:
+    if config['find_match_for_reference']:
         match_project_source_file_inventory(packages)
 
     logging.info(f"Finished running {__description__}. Run time: {datetime.now() - start_time}")
