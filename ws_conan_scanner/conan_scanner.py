@@ -11,12 +11,14 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
-from ws_conan_scanner._version import __tool_name__, __version__, __description__
+
 import requests
 import sys
 import time
 import ws_sdk
 import yaml
+
+from ws_conan_scanner._version import __tool_name__, __version__, __description__
 
 logging.basicConfig(level=logging.DEBUG if os.environ.get("DEBUG") else logging.INFO,
                     handlers=[logging.StreamHandler(stream=sys.stdout)],
@@ -52,6 +54,7 @@ PRODUCT_NAME = 'productName'
 ORG_TOKEN = 'orgToken'
 PROJECT_PATH = 'projectPath'
 PROJECT_BUILD_FOLDER_PATH = 'projectBuildFolderPath'
+FIND_MATCH_FOR_REFERENCE = 'findMatchForReference'
 
 api_version = '/api/v1.3'
 WS_URL = 'wsUrl'
@@ -223,7 +226,7 @@ def match_project_source_file_inventory(packages):
 
         no_match = True
         for library in library_search_result['libraries']:
-            statements=[
+            statements = [
             ]
             if library['type'] == 'Source Library':
                 if library_name == library['artifactId'] and library_version == library['version']:
@@ -261,6 +264,17 @@ def threads_worker(org_projects_vitals, ws_api_call):
         for future in concurrent.futures.as_completed(response):
             data_list.append(future.result())
     return data_list
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 'True', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'False', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 #  ================= API calls section Start =================
@@ -322,8 +336,8 @@ def get_args(arguments) -> dict:
     parser.add_argument('-c', '--configFile', help='The config file', required=False, dest='conf_f')
     is_config_file = bool(arguments[0] in ['-c', '--configFile'])
 
-    parser.add_argument('-d', "--" + PROJECT_PATH, help="The directory which contain the conanfile.txt path", type=Path, required=not is_config_file, dest='project_path')
-
+    parser.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the {CONAN_FILE_TXT} path", type=Path, required=not is_config_file, dest='project_path')
+    parser.add_argument('-g', "--" + FIND_MATCH_FOR_REFERENCE, help="True will attempt to match libraries per package name and version", dest='find_match_for_reference', required=not is_config_file, default=False, type=str2bool)
     parser.add_argument('-u', '--' + WS_URL, help='The organization url', required=not is_config_file, dest='ws_url')
     parser.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=not is_config_file, dest='user_key')
     parser.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=not is_config_file, dest='org_token')
@@ -357,6 +371,7 @@ def get_config_file(config_file) -> dict:
     logging.info('Start analyzing config file.')
     conf_file_dict = {
         'project_path': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_PATH),
+        'find_match_for_reference': conf_file[CONFIG_FILE_HEADER_NAME].get(FIND_MATCH_FOR_REFERENCE),
         'ws_url': conf_file[CONFIG_FILE_HEADER_NAME].get(WS_URL),
         'user_key': conf_file[CONFIG_FILE_HEADER_NAME].get(USER_KEY),
         'org_token': conf_file[CONFIG_FILE_HEADER_NAME].get(ORG_TOKEN),
@@ -416,13 +431,19 @@ def read_setup():
 
 def main():
     read_setup()
+    start_time = datetime.now()
+    logging.info(f"Start running {__description__} on token {config['org_token']}. Parallelism level: {config['project_parallelism_level']}")
+
     validate_conan_local_cache_folder()
     validate_project_manifest_file_exists()
     run_conan_install_command()
     dependencies_list = list_all_dependencies()
     packages = download_source_files(dependencies_list)
     scan_with_unified_agent()
-    match_project_source_file_inventory(packages)
+    if FIND_MATCH_FOR_REFERENCE:
+        match_project_source_file_inventory(packages)
+
+    logging.info(f"Finished running {__description__}. Run time: {datetime.now() - start_time}")
 
 
 if __name__ == '__main__':
