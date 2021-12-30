@@ -1,5 +1,4 @@
 import argparse
-import concurrent
 import json
 import logging
 import os
@@ -7,7 +6,6 @@ import pathlib
 import re
 import subprocess
 from collections import defaultdict
-from concurrent.futures.thread import ThreadPoolExecutor
 from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +16,7 @@ import time
 import ws_sdk
 import yaml
 
-from ws_conan_scanner._version import __tool_name__, __version__, __description__
+from model._version import __tool_name__, __version__, __description__
 
 logging.basicConfig(level=logging.DEBUG if os.environ.get("DEBUG") else logging.INFO,
                     handlers=[logging.StreamHandler(stream=sys.stdout)],
@@ -133,7 +131,7 @@ def download_source_files(json_data):
         temp = packages_list[counter]
         key = list(temp)[0]
         value = str(temp[key])
-        package_directory = os.path.join(config['directory'], key, value)  # replace forward's '/' of with dash '-' as this is more similar to whitesource library names convention
+        package_directory = os.path.join(config['directory'], key + '-' + value)  # replace forward's '/' of with dash '-' as this is more similar to whitesource library names convention
         pathlib.Path(package_directory).mkdir(parents=True, exist_ok=True)
 
         dependency_source = os.path.join(export_folder, 'conandata.yml')  # Check for conandata.yml file
@@ -169,9 +167,9 @@ def download_and_extract_source(source, directory, package_name):
 # 7.scan project and list all source files from the scan.
 def scan_with_unified_agent():
     unified_agent = ws_sdk.WSClient(user_key=config['user_key'], token=config['org_token'], url=config['ws_url'], ua_path=config['project_path'])
-    # unified_agent.ua_conf.includes=
+    # Todo add includes=**/*.*
     unified_agent.ua_conf.archiveExtractionDepth = '7'
-    unified_agent.ua_conf.archiveIncludes = '**/*.*'  # Todo change to includes=**/*.*
+    unified_agent.ua_conf.archiveIncludes = '**/*.*'
     logging.getLogger().setLevel(logging.DEBUG)  # Instead of debug log level for the entire script
     support_token = unified_agent.scan(scan_dir=config['directory'], product_token=config['product_token'], project_token=config['project_token'])
     support_token = support_token[1].split('\n')  # list the scan log
@@ -193,19 +191,18 @@ def scan_with_unified_agent():
             sys.exit(1)
         else:
             logging.info('scan result is being uploaded...')
-            time.sleep(7.0)
+            time.sleep(10.0)
 
 
 def get_scan_status(support_token):
     status = post_request(get_request_state, ORG_TOKEN, config['org_token'], {'requestToken': support_token})
-    logging.info(status)  # for Debugging
+    logging.info(status['requestState'])  # for Debugging
     return status
 
 
 # 8.change source files to a library per 3-4 ( API - changeOriginLibrary)
 def match_project_source_file_inventory(packages):
-    project_source_files_inventory = get_some_api(config['project_token'], get_project_source_file_inventory_report)
-    project_source_files_inventory = project_source_files_inventory['sourceFiles']
+    project_source_files_inventory = post_request(get_project_source_file_inventory_report, PROJECT_TOKEN, config['project_token'], {'format': 'json'})['sourceFiles']  # Todo move to WS-SDK
 
     packages_and_source_files_sha1 = defaultdict(list)
     for package in packages:
@@ -213,7 +210,7 @@ def match_project_source_file_inventory(packages):
         package_full_name = package_name + '-' + package[package_name]
 
         for source_file in project_source_files_inventory:
-            if package_full_name in source_file['path']:  # Todo fix for sqlite
+            if package_full_name in source_file['path']:
                 packages_and_source_files_sha1[json.dumps(package)].append(source_file['sha1'])
 
     counter = 0
@@ -222,48 +219,46 @@ def match_project_source_file_inventory(packages):
         package = json.loads(package)
         library_name = list(package.keys())[0]
         library_version = package[library_name]
-        library_search_result = library_search_api(config['org_token'], library_search, list(package.keys())[0])
-
+        library_search_result = post_request(library_search, ORG_TOKEN, config['org_token'], {'searchValue': library_name})  # Todo - look for more accurate search
         no_match = True
         for library in library_search_result['libraries']:
-            statements = [
-            ]
             if library['type'] == 'Source Library':
-                if library_name == library['artifactId'] and library_version == library['version']:
-                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
-                    counter += 1
-                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
-                    no_match = False
-                    break
-                if library_name == library['artifactId'] and library_version in library['version']:
-                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
-                    counter += 1
-                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
-                    no_match = False
-                    break
-                if library_name in library['artifactId'] and library_version in library['version']:
-                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
-                    counter += 1
-                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
-                    no_match = False
-                    break
-                if library_name in library['artifactId'] and library_version == library['version']:
-                    change_origin_library_api(config['org_token'], change_origin_library, library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], 'Source files changed by Whitesource conan scan')
-                    counter += 1
-                    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {library['name']} )  ")
-                    no_match = False
-                    break
+
+                if library_name == library['artifactId']:
+                    no_match = compare_library_version(packages, library_version, library['version'], library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], package, counter, sha1s, library['filename'])
+                    counter_new = no_match[1]
+                    if no_match[0] is False:
+                        no_match = False
+                        counter = counter_new
+                        break
+
+                elif library_name in library['artifactId']:  # Todo Fuzzy String Matching
+                    no_match = compare_library_version(packages, library_version, library['version'], library['keyUuid'], packages_and_source_files_sha1[json.dumps(package)], package, counter, sha1s, library['filename'])
+                    counter_new = no_match[1]
+                    if no_match[0] is False:
+                        no_match = False
+                        counter = counter_new
+                        break
         if no_match:
             logging.info(f" Did not find match for {package} package source files.")
 
 
-def threads_worker(org_projects_vitals, ws_api_call):
-    data_list = []
-    with ThreadPoolExecutor(max_workers=int(config['project_parallelism_level'])) as executor:
-        response = {executor.submit(get_some_api, project['token'], project['name'], ws_api_call): [project['token'], project['name'], ws_api_call] for project in org_projects_vitals['projectVitals']}
-        for future in concurrent.futures.as_completed(response):
-            data_list.append(future.result())
-    return data_list
+def compare_library_version(packages, package_library_version, library_search_version, library_key_uuid, source_files, package, counter, sha1s, matched_library_name):
+    if package_library_version == library_search_version:
+        no_match = False
+        counter += 1
+        change_origin_library_api(change_origin_library, config['org_token'], library_key_uuid, source_files, 'Source files changed by Whitesource conan scan', counter, packages, package, sha1s, matched_library_name)
+        return no_match, counter
+
+    elif package_library_version in library_search_version:  # Todo Fuzzy String Matching
+        no_match = False
+        counter += 1
+        change_origin_library_api(change_origin_library, config['org_token'], library_key_uuid, source_files, 'Source files changed by Whitesource conan scan', counter, packages, package, sha1s, matched_library_name)
+        return no_match, counter
+    else:
+        no_match = True
+        counter = 0
+        return no_match, counter
 
 
 def str2bool(v):
@@ -278,19 +273,10 @@ def str2bool(v):
 
 
 #  ================= API calls section Start =================
-def get_some_api(project_token, api_call):
-    response = post_request(api_call, PROJECT_TOKEN, project_token, {'format': 'json'})
-    return response
 
-
-def change_origin_library_api(org_token, api_call, uuid, source_files, user_comments):
-    response = post_request(api_call, ORG_TOKEN, org_token, {'targetKeyUuid': uuid, 'sourceFiles': source_files, 'userComments': user_comments})
-    return response
-
-
-def library_search_api(org_token, api_call, search_value):
-    response = post_request(api_call, ORG_TOKEN, org_token, {'searchValue': search_value})
-    return response
+def change_origin_library_api(api_call, org_token, uuid, source_files, user_comments, counter, packages, package, sha1s, matched_library_name):
+    post_request(api_call, ORG_TOKEN, org_token, {'targetKeyUuid': uuid, 'sourceFiles': source_files, 'userComments': user_comments})
+    logging.info(f"--{counter}/{len(packages)} libraries were matched ( {package} source files in package: {len(sha1s)} were matched to {matched_library_name} )  ")
 
 
 def post_request(request_type, token_type, token, additional_values):

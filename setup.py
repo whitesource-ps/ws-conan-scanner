@@ -1,5 +1,5 @@
 import setuptools
-from ws_conan_scanner._version import __version__, __tool_name__, __description__
+from ws_conan_scanner.model._version import __version__, __tool_name__, __description__
 
 ws_name = f"ws_{__tool_name__}"
 
