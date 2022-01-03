@@ -116,7 +116,8 @@ def list_all_dependencies():
     """
     deps_json_file = os.path.join(config['temp_dir'], 'deps.json')
     os.system(f"conan info {config['project_path']} --paths  --json {deps_json_file}  ")
-    deps_data = json.load(open(deps_json_file))
+    with open(deps_json_file, encoding='utf-8') as f:
+        deps_data = json.load(f)
     output_json = [x for x in deps_data if x.get('revision') is not None]  # filter items which have the revision tag
     return output_json
 
@@ -161,15 +162,16 @@ def list_dependencies_names_and_versions_from_download_source(json_data):
 
 def download_and_extract_source(source, directory, package_name):
     try:
-        a_yaml_file = open(source)
-        parsed_yaml_file = yaml.load(a_yaml_file, Loader=yaml.FullLoader)
+        with open(source) as a_yaml_file:
+            parsed_yaml_file = yaml.load(a_yaml_file, Loader=yaml.FullLoader)
         temp = parsed_yaml_file['sources']
         for key, value in temp.items():
             url = value['url']
             if isinstance(url, list):  # for cases when the yml file has url with multiple links --> we will take the 1st in order
                 url = url[0]
             r = requests.get(url, allow_redirects=True, headers={'Cache-Control': 'no-cache'})
-            open(os.path.join(directory, os.path.basename(url)), 'wb').write(r.content)
+            with open(os.path.join(directory, os.path.basename(url)), 'wb') as b:
+                b.write(r.content)
     except (FileNotFoundError, PermissionError, IsADirectoryError):
         logging.warning(f"Could not download source files for {package_name} as conandata.yml was not found")
 
