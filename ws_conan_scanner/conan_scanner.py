@@ -66,8 +66,8 @@ CONAN_FILE_TXT = 'conanfile.txt'
 CONAN_FILE_PY = 'conanfile.py'
 
 
-# 1. validate conan is installed
 def validate_conan_local_cache_folder():
+    """ Validate conan is installed by retrieving the Conan home directory"""
     conan_home = subprocess.Popen("conan config home", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0]
     converted_list = []
 
@@ -84,7 +84,6 @@ def validate_conan_local_cache_folder():
         sys.exit(1)
 
 
-# 2. validate conan project path
 def validate_project_manifest_file_exists():
     logging.info(f"Checking if the conan manifest file exists in your environment.")
 
@@ -97,12 +96,12 @@ def validate_project_manifest_file_exists():
         sys.exit(1)
 
 
-# 2.conan install
 def run_conan_install_command():
+    """ Allocate the scanned project dependencies in the conanInstallFolder"""
     if not config['conan_install_folder']:
         config['temp_dir'] = Path(config['project_path'], datetime.now().strftime('%Y%m%d%H%M%S%f'))
     elif os.path.exists(config['conan_install_folder']):
-        config['temp_dir'] = config['conan_install_folder']
+        config['temp_dir'] = Path(config['conan_install_folder'], datetime.now().strftime('%Y%m%d%H%M%S%f'))
     else:
         logging.error(f"Please validate the conan install folder exists")
         sys.exit(1)
@@ -110,8 +109,11 @@ def run_conan_install_command():
     os.system(f"conan install {config['project_path']} --install-folder {config['temp_dir']} ")
 
 
-# 3.list all dependencies with: conan info DIR_CONTAINING_CONANFILE --paths --json TEMP_JSON_PATH
 def list_all_dependencies():
+    """
+    Function to list all dependencies with: conan info DIR_CONTAINING_CONANFILE --paths --json TEMP_JSON_PATH
+    :return:list
+    """
     deps_json_file = os.path.join(config['temp_dir'], 'deps.json')
     os.system(f"conan info {config['project_path']} --paths  --json {deps_json_file}  ")
     deps_data = json.load(open(deps_json_file))
@@ -119,8 +121,12 @@ def list_all_dependencies():
     return output_json
 
 
-# 5. curl each file from each dependency / conanfile.py / conandata.yml
-def download_source_files(json_data):
+def list_dependencies_names_and_versions_from_download_source(json_data):
+    """Download each dependency source files / archive to conanInstallFolder/YmdHMSf/package_name-package_version and returns a list of names/versions
+    :return: a list dictionaries {'package_name:package_version'}
+    :rtype: list
+    """
+
     packages_list = []
     counter = 0
 
@@ -164,11 +170,10 @@ def download_and_extract_source(source, directory, package_name):
                 url = url[0]
             r = requests.get(url, allow_redirects=True, headers={'Cache-Control': 'no-cache'})
             open(os.path.join(directory, os.path.basename(url)), 'wb').write(r.content)
-    except (FileNotFoundError, PermissionError):
-        logging.error(f"Could not download source files for {package_name} as conandata.yml was not found")
+    except (FileNotFoundError, PermissionError, IsADirectoryError):
+        logging.warning(f"Could not download source files for {package_name} as conandata.yml was not found")
 
 
-# 7.scan project and list all source files from the scan.
 def scan_with_unified_agent():
     unified_agent = ws_sdk.WSClient(user_key=config['user_key'], token=config['org_token'], url=config['ws_url'], ua_path=config['project_path'])
     unified_agent.ua_conf.productName = config['product_name']
@@ -178,8 +183,9 @@ def scan_with_unified_agent():
     unified_agent.ua_conf.includes = '**/*.*'
     unified_agent.ua_conf.archiveExtractionDepth = str(ws_constants.UAArchiveFiles.ARCHIVE_EXTRACTION_DEPTH_MAX)
     unified_agent.ua_conf.archiveIncludes = list(ws_constants.UAArchiveFiles.ALL_ARCHIVE_FILES)
+    # unified_agent.ua_conf.scanPackageManager = True#Todo - check for support in favor of https://docs.conan.io/en/latest/reference/conanfile/methods.html?highlight=system_requirements#system-requirements
     logging.getLogger().setLevel(logging.DEBUG)  # Instead of debug log level for the entire script
-    support_token = unified_agent.scan(scan_dir=config['directory'],product_name=unified_agent.ua_conf.productName,product_token=unified_agent.ua_conf.productToken,project_name=unified_agent.ua_conf.projectName,project_token=unified_agent.ua_conf.projectToken)
+    support_token = unified_agent.scan(scan_dir=config['directory'], product_name=unified_agent.ua_conf.productName, product_token=unified_agent.ua_conf.productToken, project_name=unified_agent.ua_conf.projectName, project_token=unified_agent.ua_conf.projectToken)
 
     support_token = support_token[1].split('\n')  # list the scan log
     for line in support_token:
@@ -205,12 +211,13 @@ def scan_with_unified_agent():
 
 def get_scan_status(support_token):
     status = ws_conn.call_ws_api(get_request_state, {ORG_TOKEN: config['org_token'], 'requestToken': support_token})
+    pass
     logging.info(status['requestState'])  # for Debugging
     return status
 
 
-# 8.change source files to a library per 3-4 ( API - changeOriginLibrary)
 def match_project_source_file_inventory(packages):
+    """change source files mapping with changeOriginLibrary API"""
     project_source_files_inventory = ws_conn.call_ws_api(get_project_source_file_inventory_report, {PROJECT_TOKEN: config['project_token'], 'format': 'json'})
     packages_and_source_files_sha1 = defaultdict(list)
     for package in packages:
@@ -290,7 +297,7 @@ def get_args(arguments) -> dict:
     parser.add_argument('--' + PROJECT_TOKEN, help='The project token', required=not is_config_file, dest='project_token')
     parser.add_argument('--' + PRODUCT_NAME, help='The product name', required=not is_config_file, dest='product_name')
     parser.add_argument('--' + PROJECT_NAME, help='The project name', required=not is_config_file, dest='project_name')
-    parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
+    # parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
 
     args = parser.parse_args()
 
@@ -326,10 +333,10 @@ def get_config_file(config_file) -> dict:
         'project_token': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_TOKEN),
         'product_name': conf_file[CONFIG_FILE_HEADER_NAME].get(PRODUCT_NAME),
         'project_name': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_NAME),
-        'project_parallelism_level': conf_file[CONFIG_FILE_HEADER_NAME].getint(PROJECT_PARALLELISM_LEVEL, fallback=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE)
+        # 'project_parallelism_level': conf_file[CONFIG_FILE_HEADER_NAME].getint(PROJECT_PARALLELISM_LEVEL, fallback=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE)
     }
 
-    check_if_config_project_parallelism_level_is_valid(conf_file_dict['project_parallelism_level'])
+    # check_if_config_project_parallelism_level_is_valid(conf_file_dict['project_parallelism_level'])
 
     conf_file_dict.update(get_config_parameters_from_environment_variables())
 
@@ -352,16 +359,16 @@ def get_config_parameters_from_environment_variables() -> dict:
             ws_env_vars_dict[variable[len(WS_PREFIX):].lower()] = os_env_variables[variable]
             if variable == 'WS_FIND_MATCH_FOR_REFERENCE':
                 ws_env_vars_dict.update({'find_match_for_reference': str2bool(ws_env_vars_dict['find_match_for_reference'])})  # to assign boolean instead of string
-            if variable == 'WS_PROJECT_PARALLELISM_LEVEL':
-                check_if_config_project_parallelism_level_is_valid(ws_env_vars_dict['project_parallelism_level'])
+            # if variable == 'WS_PROJECT_PARALLELISM_LEVEL':
+            #     check_if_config_project_parallelism_level_is_valid(ws_env_vars_dict['project_parallelism_level'])
 
     return ws_env_vars_dict
 
 
-def check_if_config_project_parallelism_level_is_valid(parallelism_level):
-    if int(parallelism_level) not in PROJECT_PARALLELISM_LEVEL_RANGE:
-        logging.error(f'The selected {PROJECT_PARALLELISM_LEVEL} <{parallelism_level}> is not valid')
-        sys.exit(1)
+# def check_if_config_project_parallelism_level_is_valid(parallelism_level):
+#     if int(parallelism_level) not in PROJECT_PARALLELISM_LEVEL_RANGE:
+#         logging.error(f'The selected {PROJECT_PARALLELISM_LEVEL} <{parallelism_level}> is not valid')
+#         sys.exit(1)
 
 
 def read_setup():
@@ -387,13 +394,13 @@ def main():
     read_setup()
 
     start_time = datetime.now()
-    logging.info(f"Start running {__description__} on token {config['org_token']}. Parallelism level: {config['project_parallelism_level']}")
+    # logging.info(f"Start running {__description__} on token {config['org_token']}. Parallelism level: {config['project_parallelism_level']}")
+    logging.info(f"Start running {__description__} on token {config['org_token']}.")
 
-    validate_conan_local_cache_folder()
     validate_project_manifest_file_exists()
     run_conan_install_command()
     dependencies_list = list_all_dependencies()
-    packages = download_source_files(dependencies_list)
+    packages = list_dependencies_names_and_versions_from_download_source(dependencies_list)
     scan_with_unified_agent()
 
     config['find_match_for_reference'] = False  # Todo - remove once TKA-2886 is fixed
