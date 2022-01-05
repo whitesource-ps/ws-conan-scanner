@@ -106,7 +106,7 @@ def map_all_dependencies():
     return output_json
 
 
-def get_dependencies_names_and_versions_from_download_source(dependcies_list: dict) -> list:
+def get_dependencies_from_download_source(dependcies_list: list) -> list:
     """Download each dependency source files / archive to conanInstallFolder/YmdHMSf/package_name-package_version and returns a list of names/versions
     :return: a list dictionaries {'package_name:package_version'}
     :rtype: list
@@ -381,11 +381,7 @@ def create_configuration():
         sys.exit(1)
 
     # Set configuration for API calls
-    ws_conn = WS(url=config['ws_url'],
-                 user_key=config['user_key'],
-                 token=config['org_token'],
-                 tool_details=(f"ps-{__tool_name__.replace('_', '-')}", __version__),
-                 timeout=3600)
+    ws_conn = WS(url=config['ws_url'],user_key=config['user_key'],token=config['org_token'],tool_details=(f"ps-{__tool_name__.replace('_', '-')}", __version__),timeout=3600)
 
 
 def main():
@@ -399,7 +395,7 @@ def main():
     validate_project_manifest_file_exists()
     run_conan_install_command()
     dependencies_list = map_all_dependencies()
-    packages = get_dependencies_names_and_versions_from_download_source(dependencies_list)
+    packages = get_dependencies_from_download_source(dependencies_list)
     scan_with_unified_agent()
 
     # if config['find_match_for_reference']:
