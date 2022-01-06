@@ -4,12 +4,12 @@
 [![CI](https://github.com/whitesource-ps/ws-conan-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/whitesource-ps/ws-conan-scanner/actions/workflows/ci.yml)
 [![Python 3.7](https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Blue_Python_3.7%2B_Shield_Badge.svg/86px-Blue_Python_3.7%2B_Shield_Badge.svg.png)](https://www.python.org/downloads/release/python-370/)
 
-[![GitHub release](https://img.shields.io/github/v/release/whitesource-ps/ws-conan-scanner)](https://github.com/whitesource-ps/ws-conan-scanner/releases/latest)  
+[![GitHub release](https://img.shields.io/github/v/release/whitesource-ps/ws-conan-scanner)](https://github.com/whitesource-ps/ws-conan-scanner/releases/latest)
 
 # [WhiteSource Conan Scanner](https://github.com/whitesource-ps/ws-conan-scanner)
 
 ### What does the script do?
-The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resolves dependcies with WhiteSource's Unified Agent.
+The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resolves dependencies with WhiteSource's Unified Agent.
 
 ### Supported Operating Systems
 - **Linux (Bash):**	CentOS, Debian, Ubuntu, RedHat
@@ -18,7 +18,7 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 
 ### Prerequisites
 - Python 3.7 or above.
-- Conan is installed
+- Conan package manager installed.
 - Java JDK 8 ,Java JDK 11.
 
 ### Installation
@@ -28,44 +28,35 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 3. Edit the `/ws_conan_scanner/params.config` file and update the relevant parameters (see the configuration parameters below) or
    use a command line for running the `/ws_conan_scanner/conan_scanner.py` script.
 
-### Configuration Parameters'
-```shell
-usage: conan_scanner.py [-h] [-c CONF_F] -d PROJECT_PATH -a UNIFIED_AGENT_PATH -if CONAN_INSTALL_FOLDER -s KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN -u WS_URL -k USER_KEY -t ORG_TOKEN --productToken PRODUCT_TOKEN --projectToken PROJECT_TOKEN --productName PRODUCT_NAME --projectName PROJECT_NAME
+### Configuration Parameters
 
-argument parser
+| Parameter | Type | Required | Description |
+| :--- | :---: | :---: | :--- |
+| **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | Show help and usage menu. |
+| **&#x2011;c,&nbsp;&#x2011;&#x2011;configFile** | string | No | The config file path.|
+| **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | The directory which contains the conanfile.txt / conanfile.py path. |
+| **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No | The directory which contains the Unified Agent. |
+| **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No | The folder where the installation of packages outputs the generator files with the information of dependencies. Format: %Y%m%d%H%M%S%f |
+| **&#x2011;s,&nbsp;&#x2011;&#x2011;keepConanInstallFolderAfterRun** | boolean | No | keeps the Conan install folder after run. |
+| **&#x2011;u,&nbsp;&#x2011;&#x2011;wsUrl** | string | Yes | The WhiteSource organization url.|
+| **&#x2011;k,&nbsp;&#x2011;&#x2011;userKey** | string | Yes | The user key.|
+| **&#x2011;t,&nbsp;&#x2011;&#x2011;orgToken** | string | Yes | The organization token.|
+| **&#x2011;c,&nbsp;&#x2011;&#x2011;productName** | string | No | The product name.|
+| **&#x2011;c,&nbsp;&#x2011;&#x2011;projectName** | string | No | The project name.|
+| **&#x2011;c,&nbsp;&#x2011;&#x2011;productToken** | string | No | The product token. If not defined, then productName must be defined instead.|
+| **&#x2011;c,&nbsp;&#x2011;&#x2011;projectToken** | string | No | The project token .If not defined, then projectName must be defined instead.|
 
-optional arguments:
-  -h, --help            show this help message and exit
-  -c CONF_F, --configFile CONF_F
-                        The config file
-  -d PROJECT_PATH, --projectPath PROJECT_PATH
-                        The directory which contains the conanfile.txt / conanfile.py path
-  -a UNIFIED_AGENT_PATH, --unifiedAgentPath UNIFIED_AGENT_PATH
-                        The directory which contains the Unified Agent
-  -if CONAN_INSTALL_FOLDER, --conanInstallFolder CONAN_INSTALL_FOLDER
-                        The folder in which the installation of packages outputs the generator files with the information of dependencies.
-  -s KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, --keepConanInstallFolderAfterRun KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN
-                        keep the install folder after run
-  -u WS_URL, --wsUrl WS_URL
-                        The organization url
-  -k USER_KEY, --userKey USER_KEY
-                        The admin user key
-  -t ORG_TOKEN, --orgToken ORG_TOKEN
-                        The organization token
-  --productToken PRODUCT_TOKEN
-                        The product token
-  --projectToken PROJECT_TOKEN
-                        The project token
-  --productName PRODUCT_NAME
-                        The product name
-  --projectName PROJECT_NAME
-                        The project name
 
-```
+
+
 ### Execution
 From the command line:
 ```shell
 python conan_scanner.py -d PROJECT_PATH -a UNIFIED_AGENT_PATH -if CONAN_INSTALL_FOLDER -s KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN -u WS_URL -k USER_KEY -t ORG_TOKEN --productName PRODUCT_NAME --projectName PROJECT_NAME
+
+For Example:
+------------
+python .\conan_scanner.py  -d /path/to/folder/with/conanfile --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
 ```
 
 Using a config file:
