@@ -18,7 +18,7 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 
 ### Prerequisites
 - Python 3.7 or above.
-- Conan package manager installed.
+- Conan package manager installed and `sysrequires_mode = enabled`
 - Java JDK 8 ,Java JDK 11.
 
 ### Installation
