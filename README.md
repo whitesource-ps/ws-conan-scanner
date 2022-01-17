@@ -34,17 +34,18 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 | :--- | :---: | :---: | :--- |
 | **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | Show help and usage menu. |
 | **&#x2011;c,&nbsp;&#x2011;&#x2011;configFile** | string | No | The config file path.|
-| **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | The directory which contains the conanfile.txt / conanfile.py path. |
+| **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | The directory which contains the `conanfile.txt` / `conanfile.py` path. |
 | **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No | The directory which contains the Unified Agent. |
-| **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No | The folder where the installation of packages outputs the generator files with the information of dependencies. Format: %Y%m%d%H%M%S%f |
+| **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No | The folder where the installation of packages outputs the generator files with the information of dependencies. Format: `%Y%m%d%H%M%S%f` |
 | **&#x2011;s,&nbsp;&#x2011;&#x2011;keepConanInstallFolderAfterRun** | boolean | No | keeps the Conan install folder after run. |
+| **&#x2011;p,&nbsp;&#x2011;&#x2011;conanRunPreStep** | boolean | No | Runs `conan install --build`. |
 | **&#x2011;u,&nbsp;&#x2011;&#x2011;wsUrl** | string | Yes | The WhiteSource organization url.|
 | **&#x2011;k,&nbsp;&#x2011;&#x2011;userKey** | string | Yes | The user key.|
 | **&#x2011;t,&nbsp;&#x2011;&#x2011;orgToken** | string | Yes | The organization token.|
-| **&#x2011;c,&nbsp;&#x2011;&#x2011;productName** | string | No | The product name.|
-| **&#x2011;c,&nbsp;&#x2011;&#x2011;projectName** | string | No | The project name.|
-| **&#x2011;c,&nbsp;&#x2011;&#x2011;productToken** | string | No | The product token. If not defined, then productName must be defined instead.|
-| **&#x2011;c,&nbsp;&#x2011;&#x2011;projectToken** | string | No | The project token .If not defined, then projectName must be defined instead.|
+| **&nbsp;&#x2011;&#x2011;productName** | string | No | The product name.|
+| **&nbsp;&#x2011;&#x2011;projectName** | string | No | The project name.|
+| **&nbsp;&#x2011;&#x2011;productToken** | string | No | The product token. If not defined, then productName must be defined instead.|
+| **&nbsp;&#x2011;&#x2011;projectToken** | string | No | The project token .If not defined, then projectName must be defined instead.|
 
 
 
