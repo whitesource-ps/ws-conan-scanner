@@ -160,9 +160,16 @@ def get_dependencies_from_download_source(missing_packages, dependencies_list) -
             download_source_package(dependency_conan_data_yml, package_directory, missing_packages[counter])
 
         elif os.path.isfile(os.path.join(export_folder, 'conanfile.py')):  # creates conandata.yml from conanfile.py
-            os.system(f"conan source --source-folder {package_directory} --install-folder {config['temp_dir']} {export_folder}")
+            logging.info(f"{missing_packages[counter]} conandata.yml is missing from {export_folder} - will try to get with conan source command")
+            p = subprocess.Popen(f"conan source --source-folder {package_directory} --install-folder {package_directory} {export_folder}", shell=True, stdout=subprocess.PIPE, text=True)
+            logging.info(p.communicate()[0])
             packages_list.append(package_directory)
             download_source_package(package_directory, package_directory, missing_packages[counter])
+
+        # if os.path.isfile(os.path.join(export_folder, 'conanfile.py')):#Todo - consider working only with this option -might conflict with find_match_for_reference which rely on conandata.yml
+        #     os.system(f"conan install {os.path.join(export_folder, 'conanfile.py')} {item.split('/')[1]}@ --install-folder {package_directory} ")
+        #     os.system(f"conan source --source-folder {package_directory} --install-folder {package_directory} {os.path.join(export_folder, 'conanfile.py')}  ")
+        #     packages_list.append(package_directory)
 
         else:
             logging.warning(f"{packages_list[counter]} source files were not found")
@@ -174,10 +181,11 @@ def get_dependencies_from_download_source(missing_packages, dependencies_list) -
 def download_source_package(source, directory, package_name):
     try:
         url = extract_url_from_conan_data_yml(source, package_name)
-        r = requests.get(url, allow_redirects=True, headers={'Cache-Control': 'no-cache'})
-        with open(os.path.join(directory, os.path.basename(url)), 'wb') as b:
-            b.write(r.content)
-            logging.info(f"{package_name} source files were retrieved from {source} and saved at {directory} ")
+        if url:
+            r = requests.get(url, allow_redirects=True, headers={'Cache-Control': 'no-cache'})
+            with open(os.path.join(directory, os.path.basename(url)), 'wb') as b:
+                b.write(r.content)
+                logging.info(f"{package_name} source files were retrieved from {source} and saved at {directory} ")
     except (FileNotFoundError, PermissionError, IsADirectoryError):
         logging.warning(f"Could not download source files for {package_name} as conandata.yml was not found")
 
@@ -316,7 +324,7 @@ def extract_url_from_conan_data_yml(source, package):
                 url = url[0]
             return url
     except (FileNotFoundError, PermissionError, IsADirectoryError):
-        logging.warning(f"Could not find {package['reference']} conandata.yml file")
+        logging.warning(f"Could not find {str(package)} conandata.yml file")
 
 
 def str2bool(v):
@@ -471,11 +479,11 @@ def main():
     conan_profile = map_conan_profile_values()
     validate_project_manifest_file_exists()
 
-    dependencies_list = map_all_dependencies()
-
     if config['conan_run_pre_step']:
         logging.info(f"conanRunPreStep is set to {config['conan_run_pre_step']} - will run 'conan install --build' command.")
         run_conan_install_command()
+
+    dependencies_list = map_all_dependencies()
 
     dirs_to_scan = []
     source_folders_missing = conan_cache_packges_source_folder_missing(dependencies_list)
