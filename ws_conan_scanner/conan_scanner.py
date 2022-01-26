@@ -175,7 +175,7 @@ def get_dependencies_from_download_source(missing_packages, dependencies_list) -
                 output = subprocess.check_output(f"conan source --source-folder {package_directory} --install-folder {package_directory} {export_folder}", shell=True, stderr=subprocess.STDOUT).decode()
                 logging.info(output)
                 packages_list.append(package_directory)
-                dependencies_list[counter]['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
+                dependencies_list_dict.get(item)['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
             except subprocess.CalledProcessError as e:
                 logging.error(e.output.decode())
 
@@ -183,13 +183,13 @@ def get_dependencies_from_download_source(missing_packages, dependencies_list) -
                     logging.info(f"Will try to get source from {os.path.join(package_directory, 'conandata.yml')} ")
                     package_directory_returned = download_source_package(os.path.join(package_directory, 'conandata.yml'), package_directory, missing_packages[counter])
                     packages_list.append(package_directory_returned)
-                    dependencies_list[counter]['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
+                    dependencies_list_dict.get(item)['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
 
                 elif os.path.isfile(dependency_conan_data_yml):
                     logging.info(f"Will try to get source from {dependency_conan_data_yml} ")
                     package_directory_returned = download_source_package(dependency_conan_data_yml, package_directory, missing_packages[counter])
                     packages_list.append(package_directory_returned)
-                    dependencies_list[counter]['conandata_yml'] = dependency_conan_data_yml
+                    dependencies_list_dict.get(item)['conandata_yml'] = dependency_conan_data_yml
 
                 elif os.path.isfile(os.path.join(export_folder, 'conanfile.py')):  # creates conandata.yml from conanfile.py
                     logging.info(f"{missing_packages[counter]} conandata.yml is missing from {export_folder} - will try to get with conan source command")
@@ -198,7 +198,7 @@ def get_dependencies_from_download_source(missing_packages, dependencies_list) -
                         logging.info(output)
                         package_directory_returned = download_source_package(package_directory, package_directory, missing_packages[counter])
                         packages_list.append(package_directory_returned)
-                        dependencies_list[counter]['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
+                        dependencies_list_dict.get(item)['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
                     except subprocess.CalledProcessError as e:
                         logging.error(e.output.decode())
 
@@ -281,16 +281,15 @@ def change_project_source_file_inventory_match(packages):
     project_token = get_project_token_from_config()
 
     # Adding {'conandata_yml_download_url':url} dictionary for each conan packcage
-    index_download_links = convert_dict_list_to_dict(lst=csv_to_json('https://unified-agent.s3.amazonaws.com/conan_index_url_map.csv'),key_desc='conanDownloadUrl')
+    index_download_links = convert_dict_list_to_dict(lst=csv_to_json('https://unified-agent.s3.amazonaws.com/conan_index_url_map.csv'), key_desc='conanDownloadUrl')
     for package in packages:
         source = package.get('conandata_yml')
         url = extract_url_from_conan_data_yml(source, package)
         if index_download_links.get(url):
-            url=index_download_links.get(url).get('indexDownloadUrl')
+            url = index_download_links.get(url).get('indexDownloadUrl')
             package.update({'conandata_yml_download_url': url})
 
     packages_dict_by_download_link = convert_dict_list_to_dict(lst=packages, key_desc='conandata_yml_download_url')
-
 
     # Reducing source files which were mapped to the correct source library ( based on url from conandata.yml )
     project_due_diligence_dict = process_project_due_diligince_report(project_token)
@@ -405,8 +404,9 @@ def csv_to_json(csvFilePath):
     r = r_bytes.decode('utf8')
     reader = csv.DictReader(io.StringIO(r))
     result_csv_reader = json.dumps(list(reader))
-    json_result=json.loads(result_csv_reader)
+    json_result = json.loads(result_csv_reader)
     return json_result
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -595,7 +595,6 @@ def check_errors_in_response(response):
 
 
 def main():
-
     create_configuration()
     start_time = datetime.now()
     logging.info(f"Start running {__description__} on token {config['org_token']}.")
