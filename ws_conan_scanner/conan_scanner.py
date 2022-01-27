@@ -280,13 +280,16 @@ def change_project_source_file_inventory_match(packages):
     # Filtering on project's source libraries download link compared with url from conandata.yml --> if it's the same , WhiteSource source files matching was correct and no need to change.
     project_token = get_project_token_from_config()
 
-    # Adding {'conandata_yml_download_url':url} dictionary for each conan packcage
+    # Adding {'conandata_yml_download_url':url} dictionary for each conan package and aligning with ws index convention
     index_download_links = convert_dict_list_to_dict(lst=csv_to_json('https://unified-agent.s3.amazonaws.com/conan_index_url_map.csv'), key_desc='conanDownloadUrl')
     for package in packages:
+        package['counter'] = 0
         source = package.get('conandata_yml')
         url = extract_url_from_conan_data_yml(source, package)
         if index_download_links.get(url):
             url = index_download_links.get(url).get('indexDownloadUrl')
+            package.update({'conandata_yml_download_url': url})
+        else:
             package.update({'conandata_yml_download_url': url})
 
     packages_dict_by_download_link = convert_dict_list_to_dict(lst=packages, key_desc='conandata_yml_download_url')
@@ -301,12 +304,52 @@ def change_project_source_file_inventory_match(packages):
         source_file['download_link'] = project_due_diligence_dict.get(source_file['source_lib_full_name']).get('download_link')
 
         if packages_dict_by_download_link.get(source_file['download_link']):
-            logging.info(f"{source_file['filename']}-{source_file['sha1']} source file was mapped correctly to {source_file['source_lib_full_name']}")
+            packages_dict_by_download_link[source_file['download_link']]['counter'] += 1
+            # logging.info(f"{source_file['filename']}-{source_file['sha1']} source file was mapped correctly to {source_file['source_lib_full_name']}")
         else:
             project_source_files_inventory_to_remap.append(source_file)
 
+    # get project invntory as it contain the keyUuid to be used later on
+    project_inventory = ws_conn.get_inventory(token=project_token, with_dependencies=True, report=False)
+    for library in project_inventory:
+        if project_due_diligence_dict.get(library.get('filename')):
+            library['download_link'] = project_due_diligence_dict[library['filename']].get('download_link')
+
+    project_inventory_dict_by_download_link = convert_dict_list_to_dict(lst=project_inventory, key_desc='download_link')
+
+    for package in packages:
+        package.update({'package_name': package['reference'].replace('/', '-')})
+        if package['counter']>0:
+            logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library ({project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])['filename']} ) in WhiteSource")
+
+    logging.info(f"There are {len(project_source_files_inventory_to_remap)} source files that can be re-mapped to the correct source library in whitesource")
+    # #############################################test
+
+
+
+    project_source_files_inventory_to_remap_second_phase = []
+    libraries_key_uuid_and_source_files_sha1 = defaultdict(list)
+    for package in packages:
+        # package.update({'package_name': package['reference'].replace('/', '-')})
+        for source_file in project_source_files_inventory_to_remap:  # 47
+            if package['package_name'] in source_file['path'] or package['source_folder'] in source_file['path']:
+                if project_inventory_dict_by_download_link.get(package['conandata_yml_download_url']):
+                    # project_source_files_inventory_to_remap_second_phase.append(source_file)
+                    libraries_key_uuid_and_source_files_sha1[json.dumps(project_inventory_dict_by_download_link[package['conandata_yml_download_url']]['keyUuid'])].append(source_file['sha1'])
+                else:
+                    project_source_files_inventory_to_remap_second_phase.append(source_file)
+
+    project_inventory_dict_by_key_uuid=convert_dict_list_to_dict(lst=project_inventory,key_desc='keyUuid')
+    for key_uuid, sha1s in libraries_key_uuid_and_source_files_sha1.items():
+        key_uuid=key_uuid.strip('"')
+        post_request('changeOriginLibrary', 'orgToken', config['org_token'], {'targetKeyUuid': key_uuid, 'sourceFiles': sha1s, 'userComments': 'Source files changed by Whitesource conan scan'})
+        logging.info(f"--{len(sha1s)} source files were moved to {project_inventory_dict_by_key_uuid.get(key_uuid).get('filename')} library in Whitesource organization")
+    # conan_local_packages_and_source_files_sha1_second_phase = get_packages_source_files_from_inventory_scan_results(project_source_files_inventory_to_remap_second_phase, packages)
+
+    # ###################################################test
+
     # Mapping of source files which were mapped incorrectly to the source local conan package
-    conan_local_packages_and_source_files_sha1 = get_packages_source_files_from_inventory_scan_results(project_source_files_inventory_to_remap, packages)
+    conan_local_packages_and_source_files_sha1 = get_packages_source_files_from_inventory_scan_results(project_source_files_inventory_to_remap_second_phase, packages)
 
     ##########################################
     counter = 0
@@ -315,6 +358,7 @@ def change_project_source_file_inventory_match(packages):
     packages_dict_by_package_name = convert_dict_list_to_dict(lst=packages, key_desc='package_name')
 
     for package, sha1s in conan_local_packages_and_source_files_sha1.items():  # Todo - add threads
+        logging.info(f"Trying match miss configured source files of {package}")
         package = json.loads(package)
         library_name = package.partition('-')[0]
         library_search_result = ws_conn.get_libraries(library_name)
@@ -325,17 +369,17 @@ def change_project_source_file_inventory_match(packages):
             if library['type'] == 'Source Library':
                 source_libraries.append(library)
 
-        source_libraries_dict_by_download_link = convert_dict_list_to_dict(source_libraries, key_desc=str('url'))
+        source_libraries_dict_from_search_by_download_link = convert_dict_list_to_dict(source_libraries, key_desc=str('url'))
         check_url = packages_dict_by_package_name[package]['conandata_yml_download_url']
 
-        if source_libraries_dict_by_download_link.get(check_url):
-            library_key_uuid = source_libraries_dict_by_download_link[check_url].get('keyUuid')
+        if source_libraries_dict_from_search_by_download_link.get(check_url):
+            library_key_uuid = source_libraries_dict_from_search_by_download_link[check_url].get('keyUuid')
             logging.info(f"found a match for miss configured source files of {package}")
             # ws_conn.call_ws_api('changeOriginLibrary', {'targetKeyUuid': library_key_uuid, 'sourceFiles': sha1s, 'userComments': 'Source files changed by Whitesource conan scan'})
             post_request('changeOriginLibrary', 'orgToken', config['org_token'], {'targetKeyUuid': library_key_uuid, 'sourceFiles': sha1s, 'userComments': 'Source files changed by Whitesource conan scan'})
             no_match = False
             counter += 1
-            logging.info(f"--{counter}/{len(packages)} libraries were matched ( {len(sha1s)} miss configured source files from {package} conan package:  were matched to {source_libraries_dict_by_download_link[check_url]['filename']} WS source library )")
+            logging.info(f"--{counter}/{len(packages)} libraries were matched ( {len(sha1s)} misconfigured source files from {package} conan package were matched to {source_libraries_dict_from_search_by_download_link[check_url]['filename']} WS source library )")
 
         else:
             no_match = True
@@ -347,10 +391,10 @@ def change_project_source_file_inventory_match(packages):
 def get_packages_source_files_from_inventory_scan_results(project_source_files_inventory, packages):
     packages_and_source_files_sha1 = defaultdict(list)
     for package in packages:
-        package.update({'package_name': package['reference'].replace('/', '-')})
-
+        # package.update({'package_name': package['reference'].replace('/', '-')})
         for source_file in project_source_files_inventory:
             if package['package_name'] in source_file['path'] or package['source_folder'] in source_file['path']:
+                source_file['download_link'] = package.get('conandata_yml_download_url')
                 packages_and_source_files_sha1[json.dumps(package['package_name'])].append(source_file['sha1'])
     return packages_and_source_files_sha1
 
@@ -566,7 +610,7 @@ def post_request(request_type, token_type, token, additional_values):
     body2string = json.dumps(body)
     response_beta = requests.post(config['ws_url'] + '/api/v1.3', data=body2string.encode('utf-8'), headers=headers)
     if "errorCode" in response_beta.text:
-        logging.warning('got an error in first attempt - will try again')
+        # logging.warning('got an error in first attempt - will try again')
         response_beta_2 = requests.post(config['ws_url'] + '/api/v1.3', data=body2string.encode('utf-8'), headers=headers)
         response_beta = response_beta_2
     logging.debug("Finish using '%s' API", request_type)
