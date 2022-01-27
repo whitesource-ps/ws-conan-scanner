@@ -320,9 +320,9 @@ def change_project_source_file_inventory_match(packages):
     for package in packages:
         package.update({'package_name': package['reference'].replace('/', '-')})
         if package['counter']>0:
-            logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library ({project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])['filename']} ) in WhiteSource")
+            logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library ({project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])['filename']} ) in Whitesource")
 
-    logging.info(f"There are {len(project_source_files_inventory_to_remap)} source files that can be re-mapped to the correct source library in whitesource")
+    logging.info(f"There are {len(project_source_files_inventory_to_remap)} source files that can be re-mapped to the correct source library in Whitesource")
     # #############################################test
 
 
@@ -358,7 +358,7 @@ def change_project_source_file_inventory_match(packages):
     packages_dict_by_package_name = convert_dict_list_to_dict(lst=packages, key_desc='package_name')
 
     for package, sha1s in conan_local_packages_and_source_files_sha1.items():  # Todo - add threads
-        logging.info(f"Trying match miss configured source files of {package}")
+        logging.info(f"Trying match the remaining miss configured source files of {package}")
         package = json.loads(package)
         library_name = package.partition('-')[0]
         library_search_result = ws_conn.get_libraries(library_name)
@@ -385,7 +385,7 @@ def change_project_source_file_inventory_match(packages):
             no_match = True
 
         if no_match:
-            logging.info(f" Did not find match for {package} package source files.")
+            logging.info(f" Did not find match for {package} package remaining source files.")
 
 
 def get_packages_source_files_from_inventory_scan_results(project_source_files_inventory, packages):
