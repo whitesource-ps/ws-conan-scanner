@@ -62,6 +62,9 @@ PROJECT_PARALLELISM_LEVEL_RANGE = list(range(1, PROJECT_PARALLELISM_LEVEL_MAX_VA
 CONAN_FILE_TXT = 'conanfile.txt'
 CONAN_FILE_PY = 'conanfile.py'
 
+class configTest:
+    org_name='name'
+
 
 def validate_conan_installed():
     """ Validate conan is installed by retrieving the Conan home directory"""
@@ -319,13 +322,11 @@ def change_project_source_file_inventory_match(packages):
 
     for package in packages:
         package.update({'package_name': package['reference'].replace('/', '-')})
-        if package['counter']>0:
+        if package['counter'] > 0:
             logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library ({project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])['filename']} ) in Whitesource")
 
     logging.info(f"There are {len(project_source_files_inventory_to_remap)} source files that can be re-mapped to the correct source library in Whitesource")
     # #############################################test
-
-
 
     project_source_files_inventory_to_remap_second_phase = []
     libraries_key_uuid_and_source_files_sha1 = defaultdict(list)
@@ -339,9 +340,9 @@ def change_project_source_file_inventory_match(packages):
                 else:
                     project_source_files_inventory_to_remap_second_phase.append(source_file)
 
-    project_inventory_dict_by_key_uuid=convert_dict_list_to_dict(lst=project_inventory,key_desc='keyUuid')
+    project_inventory_dict_by_key_uuid = convert_dict_list_to_dict(lst=project_inventory, key_desc='keyUuid')
     for key_uuid, sha1s in libraries_key_uuid_and_source_files_sha1.items():
-        key_uuid=key_uuid.strip('"')
+        key_uuid = key_uuid.strip('"')
         post_request('changeOriginLibrary', 'orgToken', config['org_token'], {'targetKeyUuid': key_uuid, 'sourceFiles': sha1s, 'userComments': 'Source files changed by Whitesource conan scan'})
         logging.info(f"--{len(sha1s)} source files were moved to {project_inventory_dict_by_key_uuid.get(key_uuid).get('filename')} library in Whitesource organization")
     # conan_local_packages_and_source_files_sha1_second_phase = get_packages_source_files_from_inventory_scan_results(project_source_files_inventory_to_remap_second_phase, packages)
