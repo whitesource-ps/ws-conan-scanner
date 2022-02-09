@@ -39,6 +39,7 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 | **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No | The folder where the installation of packages outputs the generator files with the information of dependencies. Format: `%Y%m%d%H%M%S%f` |
 | **&#x2011;s,&nbsp;&#x2011;&#x2011;keepConanInstallFolderAfterRun** | boolean | No | keeps the Conan install folder after run. |
 | **&#x2011;p,&nbsp;&#x2011;&#x2011;conanRunPreStep** | boolean | No | Runs `conan install --build`. |
+| **&#x2011;p,&nbsp;&#x2011;&#x2011;changeOriginLibrary** | boolean | No | Auto run of [Origin Library change](https://whitesource.atlassian.net/wiki/spaces/WD/pages/34013522/Changing+the+Origin+Library+for+Source+Files) for conan source libraries in Whitesource organization. |
 | **&#x2011;u,&nbsp;&#x2011;&#x2011;wsUrl** | string | Yes | The WhiteSource organization url.|
 | **&#x2011;k,&nbsp;&#x2011;&#x2011;userKey** | string | Yes | The user key.|
 | **&#x2011;t,&nbsp;&#x2011;&#x2011;orgToken** | string | Yes | The organization token.|
