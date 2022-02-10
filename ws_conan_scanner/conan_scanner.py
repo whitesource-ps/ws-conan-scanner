@@ -16,6 +16,7 @@ import gc
 import requests
 import sys
 import time
+import urllib3
 import ws_sdk
 import yaml
 from ws_sdk import *
@@ -220,6 +221,10 @@ def download_source_package(source, directory, package_name):
                 b.write(r.content)
                 logging.info(f"{package_name} source files were retrieved from {source} and saved at {directory} ")
                 return directory
+    except urllib3.exceptions.ProtocolError as e:
+        logging.error(f'{general_text}\nGeneral requests error: ' + str(e.__traceback__))
+    except requests.exceptions.ConnectionError as e:
+        logging.error(f'{general_text}\nGeneral requests error: ' + e.response.text)
     except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
         logging.warning(f"{general_text} as conandata.yml was not found or is not accessible: " + e.response.text)
     except requests.exceptions.URLRequired as e:
@@ -381,7 +386,8 @@ def change_project_source_file_inventory_match(conan_dependencies):
         package.update({'package_name': package['reference'].replace('/', '-')})
         if package['counter'] > 0:
             logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library ({project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])['filename']} ) in {org_name}")
-
+        else:
+            logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library in {org_name}")
     logging.info(f"There are {len(project_source_files_inventory_to_remap_first_phase)} source files that can be re-mapped to the correct conan source library in {org_name}")
 
     project_source_files_inventory_to_remap_second_phase, libraries_key_uuid_and_source_files_sha1 = get_project_source_files_inventory_to_remap_second_phase(conan_dependencies_new, project_source_files_inventory_to_remap_first_phase, project_inventory_dict_by_download_link, project_inventory, org_name)
@@ -455,7 +461,7 @@ def extract_url_from_conan_data_yml(source, package):
                 url = url[-1]
             return url
     except (FileNotFoundError, PermissionError, IsADirectoryError):
-        logging.warning(f"Could not find {str(package)} conandata.yml file")
+        logging.warning(f"Could not find {package} conandata.yml file")
 
 
 def get_project_token_from_config():
@@ -638,7 +644,6 @@ def create_configuration():
 
 
 def main():
-    test_dict = {'a': 1, 'b': 2}
     create_configuration()
     start_time = datetime.now()
     logging.info(f"Start running {__description__} on token {config['org_token']}.")
