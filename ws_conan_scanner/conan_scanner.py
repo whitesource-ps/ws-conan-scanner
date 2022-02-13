@@ -1,5 +1,6 @@
 import argparse
 import csv
+import gc
 import io
 import json
 import logging
@@ -7,15 +8,14 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
+import time
 from collections import defaultdict
 from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
 
-import gc
 import requests
-import sys
-import time
 import urllib3
 import ws_sdk
 import yaml
@@ -125,6 +125,7 @@ def map_all_dependencies():
         return output_json
     except subprocess.CalledProcessError as e:
         logging.error(e.output.decode())
+        logging.info("The conan scanner will stop due to a failure to")
         sys.exit(1)
 
 
@@ -170,12 +171,17 @@ def get_dependencies_from_download_source(source_folders_missing, conan_dependen
 
         if os.path.isfile(os.path.join(export_folder, 'conanfile.py')):
             install_version = dependencies_list_dict.get(item).get('reference')
+            if '@' not in install_version:
+                install_version = install_version + '@'
+            conan_install_command = f"conan install --install-folder {package_directory} {export_folder} {install_version}"
+            conan_source_command = f"conan source --source-folder {package_directory} --install-folder {package_directory} {export_folder}"
+
             try:
-                if '@' not in install_version:
-                    install_version = install_version + '@'
-                output = subprocess.check_output(f"conan install --install-folder {package_directory} {export_folder} {install_version}", shell=True, stderr=subprocess.STDOUT).decode()
+                logging.info(f"Going to run the following command : {conan_install_command}")
+                output = subprocess.check_output(conan_install_command, shell=True, stderr=subprocess.STDOUT).decode()
                 logging.info(output)
-                output = subprocess.check_output(f"conan source --source-folder {package_directory} --install-folder {package_directory} {export_folder}", shell=True, stderr=subprocess.STDOUT).decode()
+                logging.info(f"Going to run the following command : {conan_source_command}")
+                output = subprocess.check_output(conan_source_command, shell=True, stderr=subprocess.STDOUT).decode()
                 logging.info(output)
                 packages_list.append(package_directory)
                 dependencies_list_dict.get(item)['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
@@ -197,7 +203,8 @@ def get_dependencies_from_download_source(source_folders_missing, conan_dependen
                 elif os.path.isfile(os.path.join(export_folder, 'conanfile.py')):  # creates conandata.yml from conanfile.py
                     logging.info(f"{item} conandata.yml is missing from {export_folder} - will try to get with conan source command")
                     try:
-                        output = subprocess.check_output(f"conan source --source-folder {package_directory} --install-folder {package_directory} {export_folder}", shell=True, stderr=subprocess.STDOUT).decode()
+                        logging.info(f"Going to run the following command : {conan_source_command}")
+                        output = subprocess.check_output(conan_source_command, shell=True, stderr=subprocess.STDOUT).decode()
                         logging.info(output)
                         package_directory_returned = download_source_package(package_directory, package_directory, item)
                         packages_list.append(package_directory_returned)
