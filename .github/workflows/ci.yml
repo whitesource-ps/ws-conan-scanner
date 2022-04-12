@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: [ 3.7, 3.8, 3.9 ]
     steps:
       - name: Set Environment Variables
         run: |
@@ -31,9 +31,9 @@ jobs:
       - name: Set package version
         run: |
           sed -E -i  "s/^__version__ = \"[a-z0-9\.]+\"/__version__ = \"$VERSION\"/g"  ${{ env.TOOL_DIR }}/model/_version.py
-      - uses: UnicornGlobal/trufflehog-actions-scan@master
-        with:
-          branch: ${{ github.head_ref }}
+      #      - uses: UnicornGlobal/trufflehog-actions-scan@master
+      #        with:
+      #          branch: ${{ github.head_ref }}
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
@@ -49,12 +49,12 @@ jobs:
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --ignore=E501,F841
           # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-#      - name: Create Wheel Package
-#        run: python setup.py bdist_wheel
-#      - name: Install Wheel package
-#        run: pip install dist/${{ env.TOOL_DIR }}-${{ env.VERSION }}-py3-none-any.whl[xlsx]
-#      - name: Full Test
-#        run: ${{ env.TOOL_NAME }} -u ${{ secrets.WS_USER_KEY }} -k ${{ secrets.WS_ORG_TOKEN }} -s product -r inventory -t unified_xlsx
+      #      - name: Create Wheel Package
+      #        run: python setup.py bdist_wheel
+      #      - name: Install Wheel package
+      #        run: pip install dist/${{ env.TOOL_DIR }}-${{ env.VERSION }}-py3-none-any.whl[xlsx]
+      #      - name: Full Test
+      #        run: ${{ env.TOOL_NAME }} -u ${{ secrets.WS_USER_KEY }} -k ${{ secrets.WS_ORG_TOKEN }} -s product -r inventory -t unified_xlsx
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: ncipollo/release-action@v1
@@ -63,21 +63,21 @@ jobs:
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: ${{ env.RELEASE != 'true' }}
-#      - name: Publish to Test PyPI
-#        if: startsWith(github.ref, 'refs/tags/test-v')
-#        uses: pypa/gh-action-pypi-publish@release/v1
-#        with:
-#          skip_existing: true
-#          user: __token__
-#          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
-#          repository_url: https://test.pypi.org/legacy/
-#      - name: Publish to PyPI
-#        if: startsWith(github.ref, 'refs/tags/v')
-#        uses: pypa/gh-action-pypi-publish@release/v1
-#        with:
-#          skip_existing: true
-#          user: __token__
-#          password: ${{ secrets.PYPI_API_TOKEN }}
+      #      - name: Publish to Test PyPI
+      #        if: startsWith(github.ref, 'refs/tags/test-v')
+      #        uses: pypa/gh-action-pypi-publish@release/v1
+      #        with:
+      #          skip_existing: true
+      #          user: __token__
+      #          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      #          repository_url: https://test.pypi.org/legacy/
+      #      - name: Publish to PyPI
+      #        if: startsWith(github.ref, 'refs/tags/v')
+      #        uses: pypa/gh-action-pypi-publish@release/v1
+      #        with:
+      #          skip_existing: true
+      #          user: __token__
+      #          password: ${{ secrets.PYPI_API_TOKEN }}
       - name: Publish to Confluence - Internal
         if: ${{ env.RELEASE == 'true' }}
         uses: cupcakearmy/confluence-markdown-sync@v1
