@@ -22,11 +22,7 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 - Java JDK 8 ,Java JDK 11.
 
 ### Installation
-1. Download and unzip **ws-conan-scanner.zip**.
-2. From the command line, navigate to the `ws_conan_scanner` directory and install the package:  
-   `pip install -r requirements.txt`.
-3. Edit the `/ws_conan_scanner/params.config` file and update the relevant parameters (see the configuration parameters below) or
-   use a command line for running the `/ws_conan_scanner/conan_scanner.py` script.
+Execute `pip install ws-conan-scanner`
 
 ### Configuration Parameters
 
@@ -48,22 +44,19 @@ The script scans [Conan.io](https://docs.conan.io/en/latest/) projects and resol
 | **&nbsp;&#x2011;&#x2011;productToken** | string | No | The product token. If not defined, then productName must be defined instead.|
 | **&nbsp;&#x2011;&#x2011;projectToken** | string | No | The project token .If not defined, then projectName must be defined instead.|
 
-
-
-
 ### Execution
 From the command line:
 ```shell
-python conan_scanner.py -d PROJECT_PATH -a UNIFIED_AGENT_PATH -if CONAN_INSTALL_FOLDER -s KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN -u WS_URL -k USER_KEY -t ORG_TOKEN --productName PRODUCT_NAME --projectName PROJECT_NAME
+ws_conan_scanner -d PROJECT_PATH -a UNIFIED_AGENT_PATH -if CONAN_INSTALL_FOLDER -s KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN -u WS_URL -k USER_KEY -t ORG_TOKEN --productName PRODUCT_NAME --projectName PROJECT_NAME
 
 For Example:
 ------------
-python .\conan_scanner.py  -d /path/to/folder/with/conanfile --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
+ws_conan_scanner  -d /path/to/folder/with/conanfile --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
 ```
 
 Using a config file:
 ```shell
-python conan_scanner.py -c / --configFile <CONFIG_FILE>`
+ws_conan_scanner -c / --configFile <CONFIG_FILE>`
 ```
 
 Environment Variables:
