@@ -11,7 +11,6 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
 
@@ -36,7 +35,7 @@ CONFIG_FILE_HEADER_NAME = 'DEFAULT'
 
 # Environment variables
 WS_PREFIX = 'WS_'
-WS_ENV_VARS = [WS_PREFIX + sub for sub in ('WS_URL', 'USER_KEY', 'ORG_TOKEN', 'PROJECT_PARALLELISM_LEVEL', 'PROJECT_PATH', 'PROJECT_BUILD_FOLDER_PATH')]
+WS_ENV_VARS = [WS_PREFIX + sub for sub in ('WS_URL', 'USER_KEY', 'ORG_TOKEN', 'PROJECT_PATH', 'PROJECT_BUILD_FOLDER_PATH')]
 USER_KEY = 'userKey'
 PROJECT_TOKEN = 'projectToken'
 PRODUCT_TOKEN = 'productToken'
@@ -82,19 +81,21 @@ class Config:
 
         # Set configuration for temp directory location which will contain dependencies source files.
         self.date_time_now = datetime.now().strftime('%Y%m%d%H%M%S%f')
+        self.temp_dir = Path(self.conan_install_folder, self.date_time_now)
 
-        if not self.conan_install_folder:
-            self.temp_dir = Path(self.project_path, self.date_time_now)
+        invalid_params = []
 
-        elif os.path.exists(self.conan_install_folder):
-            self.temp_dir = Path(self.conan_install_folder, self.date_time_now)
-        else:
-            logging.error(f"Please validate the conan install folder exists")
-            sys.exit(1)
+        if not os.path.exists(self.project_path):
+            invalid_params.append({'projectPath': self.project_path})
+            logging.error(f"Please validate that the projectPath path exists")
 
-        # Set configuration for Unified Agent directory location
-        if not self.unified_agent_path:
-            self.unified_agent_path = self.project_path
+        if not os.path.exists(self.unified_agent_path):
+            invalid_params.append({'unifiedAgentPath': self.unified_agent_path})
+            logging.error(f"Please validate that the unifiedAgentPath path exists")
+
+        if not os.path.exists(self.conan_install_folder):
+            invalid_params.append({'conanInstallFolder': self.conan_install_folder})
+            logging.error(f"Please validate that the conanInstallFolder path exists")
 
         # Set connection for API calls
         self.ws_conn = ws_sdk.web.WSApp(url=self.ws_url,
@@ -104,6 +105,10 @@ class Config:
 
         logging.info(f"ws connections details:\nwsURL: {self.ws_url}\norgToken: {self.org_token}")
         self.ws_conn_details = self.ws_conn.get_organization_details()
+
+        if len(invalid_params) > 0:
+            logging.info(f"The following parameters should be fixed :\n{invalid_params}")
+            sys.exit()
 
 
 def validate_conan_installed():
@@ -155,7 +160,7 @@ def map_all_dependencies(config):
         deps_json_file = os.path.join(config.temp_dir, 'deps.json')
         logging.info(f"Mapping project's dependencies to {deps_json_file}")
         output = subprocess.check_output(f"conan info {config.project_path} --paths --dry-build  --json {deps_json_file}  ", shell=True, stderr=subprocess.STDOUT).decode()
-        logging.info(f'\n{output}') #Todo add print of deps.json
+        logging.info(f'\n{output}')  # Todo add print of deps.json
 
         with open(deps_json_file, encoding='utf-8') as f:
             deps_data = json.load(f)
@@ -254,7 +259,7 @@ def get_dependencies_from_download_source(config, source_folders_missing, conan_
                 else:
                     logging.warning(f"{item} source files were not found")
 
-    return packages_list #Todo remove
+    return packages_list  # Todo remove
 
 
 def download_source_package(source, directory, package_name):
@@ -293,6 +298,10 @@ def get_source_folders_list(source_folders_missing, conan_dependencies: list):
 
 
 def scan_with_unified_agent(config, dirs_to_scan):
+    dirs = []
+    for item in dirs_to_scan:
+        dirs.append(str(Path(item).absolute()))
+
     unified_agent = ws_sdk.web.WSClient(user_key=config.user_key, token=config.org_token, url=config.ws_url, ua_path=config.unified_agent_path)
     unified_agent.ua_conf.projectPerFolder = str(False)
     unified_agent.ua_conf.productName = config.product_name
@@ -301,13 +310,12 @@ def scan_with_unified_agent(config, dirs_to_scan):
     unified_agent.ua_conf.projectToken = config.project_token
     unified_agent.ua_conf.includes = '**/*.*'
     unified_agent.ua_conf.excludes = str(f"**/ws_conan_scanned_*,{os.environ.get('WS_EXCLUDES', '')}")
-    unified_agent.ua_conf.resolveAllDependencies = str(False)
     unified_agent.ua_conf.archiveExtractionDepth = str(UAArchiveFiles.ARCHIVE_EXTRACTION_DEPTH_MAX)
     unified_agent.ua_conf.archiveIncludes = list(UAArchiveFiles.ALL_ARCHIVE_FILES)
     unified_agent.ua_conf.logLevel = 'debug'
     # unified_agent.ua_conf.scanPackageManager = True #Todo - check for support in favor of https://docs.conan.io/en/latest/reference/conanfile/methods.html?highlight=system_requirements#system-requirements
 
-    output = unified_agent.scan(scan_dir=dirs_to_scan,
+    output = unified_agent.scan(scan_dir=dirs,
                                 product_name=unified_agent.ua_conf.productName,
                                 product_token=unified_agent.ua_conf.productToken,
                                 project_name=unified_agent.ua_conf.projectName,
@@ -495,8 +503,6 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
     if len(project_source_files_inventory_to_remap_second_phase) > 0:
         project_source_files_inventory_to_remap_third_phase = get_project_source_files_inventory_to_remap_third_phase(project_source_files_inventory_to_remap_second_phase)
 
-
-
         remaining_conan_local_packages_and_source_files_sha1 = get_packages_source_files_from_inventory_scan_results(project_source_files_inventory_to_remap_third_phase, conan_dependencies_new)  # Todo check bzip2
 
         ####
@@ -591,110 +597,41 @@ def str2bool(v):
 
 
 def create_configuration():
-    """reads the configuration from cli / config file and updates in a global config."""
+    """reads the configuration from cli."""
 
     def get_args(arguments) -> dict:
         """Get configuration arguments"""
 
         logging.info('Start analyzing arguments.')
+
         parser = argparse.ArgumentParser(description='argument parser')
 
-        parser.add_argument('-c', '--configFile', help='The config file', required=False, dest='conf_f')
-        is_config_file = bool(arguments[0] in ['-c', '--configFile'])
-
-        parser.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the conanfile.txt / conanfile.py path", type=Path, required=not is_config_file, dest='project_path')
-        parser.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=Path, required=not is_config_file, dest='unified_agent_path')
-        parser.add_argument('-if', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=Path, required=not is_config_file, dest='conan_install_folder')
-        parser.add_argument('-s', "--" + KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, help="keep the install folder after run", dest='keep_conan_install_folder_after_run', required=not is_config_file, default=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT, type=str2bool)
-        parser.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=not is_config_file, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
-        parser.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=not is_config_file, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
-        parser.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=not is_config_file, dest='ws_url')
-        parser.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=not is_config_file, dest='user_key')
-        parser.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=not is_config_file, dest='org_token')
-        parser.add_argument('--' + PRODUCT_TOKEN, help='The product token', required=not is_config_file, dest='product_token')
-        parser.add_argument('--' + PROJECT_TOKEN, help='The project token', required=not is_config_file, dest='project_token')
-        parser.add_argument('--' + PRODUCT_NAME, help='The product name', required=not is_config_file, dest='product_name')
-        parser.add_argument('--' + PROJECT_NAME, help='The project name', required=not is_config_file, dest='project_name')
+        parser.add_argument('-s', "--" + KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, help="keep the install folder after run", dest='keep_conan_install_folder_after_run', required=False, default=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT, type=str2bool)
+        parser.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
+        parser.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
+        parser.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
+        parser.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=True, dest='user_key')
+        parser.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=True, dest='org_token')
+        parser.add_argument('--' + PRODUCT_TOKEN, help='The product token', required=False, dest='product_token')
+        parser.add_argument('--' + PROJECT_TOKEN, help='The project token', required=False, dest='project_token')
+        parser.add_argument('--' + PRODUCT_NAME, help='The product name', required=False, dest='product_name')
+        parser.add_argument('--' + PROJECT_NAME, help='The project name', required=False, dest='project_name')
         # parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
+        parser.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the conanfile.txt / conanfile.py path", type=Path, required=True, dest='project_path')
+        remaining = parser.parse_known_args()
+        parser.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=Path, required=False, default=remaining[0].project_path, dest='unified_agent_path')
+        remaining = parser.parse_known_args()
+        parser.add_argument('-if', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=Path, required=False, default=remaining[0].project_path, dest='conan_install_folder')
 
-        args = parser.parse_args()
-
-        if args.conf_f is None:
-            args_dict = vars(args)
-            args_dict.update(get_config_parameters_from_environment_variables())
-
-        elif os.path.exists(args.conf_f):
-            logging.info(f'Using {args.conf_f} , additional arguments from the CLI will be ignored')
-            args_dict = get_config_file(args.conf_f)
-        else:
-            logging.error("Config file doesn't exists")
-            sys.exit(1)
+        args_dict = vars(parser.parse_args())
 
         logging.info('Finished analyzing arguments.')
         return args_dict
 
-    def get_config_file(config_file) -> dict:
-        conf_file = ConfigParser()
-        conf_file.read(config_file)
-
-        logging.info('Start analyzing config file.')
-        conf_file_dict = {
-            'project_path': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_PATH),
-            'unified_agent_path': conf_file[CONFIG_FILE_HEADER_NAME].get(UNIFIED_AGENT_PATH),
-            'conan_install_folder': conf_file[CONFIG_FILE_HEADER_NAME].get(CONAN_INSTALL_FOLDER),
-            'keep_conan_install_folder_after_run': conf_file[CONFIG_FILE_HEADER_NAME].getboolean(KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, fallback=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT),
-            'conan_run_pre_step': conf_file[CONFIG_FILE_HEADER_NAME].getboolean(CONAN_RUN_PRE_STEP, fallback=CONAN_RUN_PRE_STEP_DEFAULT),
-            'change_origin_library': conf_file[CONFIG_FILE_HEADER_NAME].getboolean(CHANGE_ORIGIN_LIBRARY, fallback=CHANGE_ORIGIN_LIBRARY_DEFAULT),
-            'ws_url': conf_file[CONFIG_FILE_HEADER_NAME].get(WS_URL),
-            'user_key': conf_file[CONFIG_FILE_HEADER_NAME].get(USER_KEY),
-            'org_token': conf_file[CONFIG_FILE_HEADER_NAME].get(ORG_TOKEN),
-            'product_token': conf_file[CONFIG_FILE_HEADER_NAME].get(PRODUCT_TOKEN),
-            'project_token': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_TOKEN),
-            'product_name': conf_file[CONFIG_FILE_HEADER_NAME].get(PRODUCT_NAME),
-            'project_name': conf_file[CONFIG_FILE_HEADER_NAME].get(PROJECT_NAME),
-            # 'project_parallelism_level': conf_file[CONFIG_FILE_HEADER_NAME].getint(PROJECT_PARALLELISM_LEVEL, fallback=PROJECT_PARALLELISM_LEVEL_DEFAULT_VALUE)
-        }
-
-        # check_if_config_project_parallelism_level_is_valid(conf_file_dict['project_parallelism_level'])
-
-        conf_file_dict.update(get_config_parameters_from_environment_variables())
-
-        for key, value in conf_file_dict.items():
-            if value is None:
-                logging.error(f'Please check your {key} parameter-it is missing from the config file')
-                sys.exit(1)
-
-        logging.info('Finished analyzing the config file.')
-
-        return conf_file_dict
-
-    def get_config_parameters_from_environment_variables() -> dict:
-        os_env_variables = dict(os.environ)
-        ws_env_vars_dict = {}
-        for variable in WS_ENV_VARS:
-            if variable in os_env_variables:
-                logging.info(f'found {variable} environment variable - will use its value')
-                ws_env_vars_dict[variable[len(WS_PREFIX):].lower()] = os_env_variables[variable]
-                if variable == 'WS_CHANGE_ORIGIN_LIBRARY':
-                    ws_env_vars_dict.update({'change_origin_library': str2bool(ws_env_vars_dict['change_origin_library'])})  # to assign boolean instead of string
-                # if variable == 'WS_PROJECT_PARALLELISM_LEVEL':
-                #     check_if_config_project_parallelism_level_is_valid(ws_env_vars_dict['project_parallelism_level'])
-
-        return ws_env_vars_dict
-
-    # def check_if_config_project_parallelism_level_is_valid(parallelism_level):
-    #     if int(parallelism_level) not in PROJECT_PARALLELISM_LEVEL_RANGE:
-    #         logging.error(f'The selected {PROJECT_PARALLELISM_LEVEL} <{parallelism_level}> is not valid')
-    #         sys.exit(1)
-
     args = sys.argv[1:]
     if len(args) > 0:
         params_conf = get_args(args)
-    elif os.path.isfile(DEFAULT_CONFIG_FILE):  # used mainly when running the script from an IDE -> same path of CONFIG_FILE (params.config)
-        params_conf = get_config_file(DEFAULT_CONFIG_FILE)
-    else:
-        params_conf = get_config_parameters_from_environment_variables()
-    return Config(conf=params_conf)
+        return Config(conf=params_conf)
 
 
 def main():

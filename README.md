@@ -26,23 +26,22 @@ Execute `pip install ws-conan-scanner`
 
 ### Configuration Parameters
 
-| Parameter | Type | Required | Description |
-| :--- | :---: | :---: | :--- |
-| **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | Show help and usage menu. |
-| **&#x2011;c,&nbsp;&#x2011;&#x2011;configFile** | string | No | The config file path.|
-| **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | The directory which contains the `conanfile.txt` / `conanfile.py` path. |
-| **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No | The directory which contains the Unified Agent. |
-| **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No | The folder where the installation of packages outputs the generator files with the information of dependencies. Format: `%Y%m%d%H%M%S%f` |
-| **&#x2011;s,&nbsp;&#x2011;&#x2011;keepConanInstallFolderAfterRun** | boolean | No | keeps the Conan install folder after run. |
-| **&#x2011;p,&nbsp;&#x2011;&#x2011;conanRunPreStep** | boolean | No | Runs `conan install --build`. |
-| **&#x2011;p,&nbsp;&#x2011;&#x2011;changeOriginLibrary** | boolean | No | Auto run of [Origin Library change](https://whitesource.atlassian.net/wiki/spaces/WD/pages/34013522/Changing+the+Origin+Library+for+Source+Files) for conan source libraries in Whitesource organization. |
-| **&#x2011;u,&nbsp;&#x2011;&#x2011;wsUrl** | string | Yes | The WhiteSource organization url.|
-| **&#x2011;k,&nbsp;&#x2011;&#x2011;userKey** | string | Yes | The user key.|
-| **&#x2011;t,&nbsp;&#x2011;&#x2011;orgToken** | string | Yes | The organization token.|
-| **&nbsp;&#x2011;&#x2011;productName** | string | No | The product name.|
-| **&nbsp;&#x2011;&#x2011;projectName** | string | No | The project name.|
-| **&nbsp;&#x2011;&#x2011;productToken** | string | No | The product token. If not defined, then productName must be defined instead.|
-| **&nbsp;&#x2011;&#x2011;projectToken** | string | No | The project token .If not defined, then projectName must be defined instead.|
+| Parameter | Type | Required | Default | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | |Show help and usage menu. |
+| **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | |The full path directory which contains the `conanfile.txt` / `conanfile.py` path. |
+| **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No |projectPath|The full path directory which contains the Unified Agent.|
+| **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No |projectPath |The folder where the installation of packages outputs the generator files with the information of dependencies. Format: `%Y%m%d%H%M%S%f` . |
+| **&#x2011;s,&nbsp;&#x2011;&#x2011;keepConanInstallFolderAfterRun** | boolean | No | False |keeps the Conan install folder after run. |
+| **&#x2011;p,&nbsp;&#x2011;&#x2011;conanRunPreStep** | boolean | No | False |Runs `conan install --build`. |
+| **&#x2011;g,&nbsp;&#x2011;&#x2011;changeOriginLibrary** | boolean | No |False|Auto run of [Origin Library change](https://whitesource.atlassian.net/wiki/spaces/WD/pages/34013522/Changing+the+Origin+Library+for+Source+Files) for conan source libraries in Whitesource organization. |
+| **&#x2011;u,&nbsp;&#x2011;&#x2011;wsUrl** | string | Yes | |The WhiteSource organization url.|
+| **&#x2011;k,&nbsp;&#x2011;&#x2011;userKey** | string | Yes | |The user ( Product Admin ) key.|
+| **&#x2011;t,&nbsp;&#x2011;&#x2011;orgToken** | string | Yes | |The organization token.|
+| **&nbsp;&#x2011;&#x2011;productName** | string | Only required if projectToken is not defined. | |The product name.|
+| **&nbsp;&#x2011;&#x2011;projectName** | string | Only required if projectToken is not defined.  | |The project name.|
+| **&nbsp;&#x2011;&#x2011;productToken** | string | Only required if projectToken is not defined. | | The product token.|
+| **&nbsp;&#x2011;&#x2011;projectToken** | string | Only required if projectName is not defined.  | |The project token.|
 
 ### Execution
 From the command line:
@@ -53,16 +52,6 @@ For Example:
 ------------
 ws_conan_scanner  -d /path/to/folder/with/conanfile --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
 ```
-
-Using a config file:
-```shell
-ws_conan_scanner -c / --configFile <CONFIG_FILE>`
-```
-
-Environment Variables:
-- A parameter name, as it is defined in the configuration file, is converted to upper case with underscore (`_`) separators, and **WS**_ prefix is added.
-- For example, the `wsUrl` parameter can be set using the `WS_WS_URL ` environment variable.
-- If an environment variable exists, it will overwrite any value that is defined for the matching parameter in the command line/configuration file.
 
 ### Author
 WhiteSource Software ©
