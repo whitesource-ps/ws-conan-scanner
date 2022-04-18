@@ -28,13 +28,14 @@ Execute `pip install ws-conan-scanner`
 
 | Parameter | Type | Required | Default | Description |
 | :--- | :---: | :---: | :---: | :--- |
-| **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | |Show help and usage menu. |
+| **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | |Shows help and usage menu. |
 | **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | |The full path directory which contains the `conanfile.txt` / `conanfile.py` path. |
-| **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No |projectPath|The full path directory which contains the Unified Agent.|
-| **&#x2011;if,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No |projectPath |The folder where the installation of packages outputs the generator files with the information of dependencies. Format: `%Y%m%d%H%M%S%f` . |
+| **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No |projectPath|The full path directory which contains the Unified Agent ( will be downloaded if not found on in path.|
+| **&#x2011;i,&nbsp;&#x2011;&#x2011;conanInstallFolder** | string | No |projectPath/`%Y%m%d%H%M%S%f` |The folder where the installation of packages outputs the generator files with the information of dependencies. Format: `%Y%m%d%H%M%S%f` . |
 | **&#x2011;s,&nbsp;&#x2011;&#x2011;keepConanInstallFolderAfterRun** | boolean | No | False |keeps the Conan install folder after run. |
+| **&#x2011;b,&nbsp;&#x2011;&#x2011;includeBuildRequiresPackages** | boolean | No | True |If True, the scanner will include [build_requirements packages](https://docs.conan.io/en/latest/devtools/build_requires.html).   |
 | **&#x2011;p,&nbsp;&#x2011;&#x2011;conanRunPreStep** | boolean | No | False |Runs `conan install --build`. |
-| **&#x2011;g,&nbsp;&#x2011;&#x2011;changeOriginLibrary** | boolean | No |False|Auto run of [Origin Library change](https://whitesource.atlassian.net/wiki/spaces/WD/pages/34013522/Changing+the+Origin+Library+for+Source+Files) for conan source libraries in Whitesource organization. |
+| **&#x2011;g,&nbsp;&#x2011;&#x2011;changeOriginLibrary** | boolean | No |True|Auto run of [Origin Library change](https://whitesource.atlassian.net/wiki/spaces/WD/pages/34013522/Changing+the+Origin+Library+for+Source+Files) for conan source libraries in Whitesource organization. |
 | **&#x2011;u,&nbsp;&#x2011;&#x2011;wsUrl** | string | Yes | |The WhiteSource organization url.|
 | **&#x2011;k,&nbsp;&#x2011;&#x2011;userKey** | string | Yes | |The user ( Product Admin ) key.|
 | **&#x2011;t,&nbsp;&#x2011;&#x2011;orgToken** | string | Yes | |The organization token.|
@@ -45,12 +46,14 @@ Execute `pip install ws-conan-scanner`
 
 ### Execution
 From the command line:
-```shell
-ws_conan_scanner -d PROJECT_PATH -a UNIFIED_AGENT_PATH -if CONAN_INSTALL_FOLDER -s KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN -u WS_URL -k USER_KEY -t ORG_TOKEN --productName PRODUCT_NAME --projectName PROJECT_NAME
 
-For Example:
-------------
-ws_conan_scanner  -d /path/to/folder/with/conanfile --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
+With default behavior
+```
+ws_conan_scanner  --projectPath /path/to/folder/with/conanfile  --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
+```
+With customized behavior
+```
+ws_conan_scanner  --projectPath /path/to/folder/with/conanfile --unifiedAgentPath /path/to/folder/with/ws/unified/agent --conanInstallFolder /path/to/install/folder --keepConanInstallFolderAfterRun True  --includeBuildRequiresPackages True --conanRunPreStep True --changeOriginLibrary True --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
 ```
 
 ### Author
