@@ -34,8 +34,6 @@ DEFAULT_CONFIG_FILE = 'params.config'
 CONFIG_FILE_HEADER_NAME = 'DEFAULT'
 
 # Environment variables
-WS_PREFIX = 'WS_'
-WS_ENV_VARS = [WS_PREFIX + sub for sub in ('WS_URL', 'USER_KEY', 'ORG_TOKEN', 'PROJECT_PATH', 'PROJECT_BUILD_FOLDER_PATH')]
 USER_KEY = 'userKey'
 PROJECT_TOKEN = 'projectToken'
 PRODUCT_TOKEN = 'productToken'
@@ -48,9 +46,11 @@ CONAN_INSTALL_FOLDER = 'conanInstallFolder'
 KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN = 'keepConanInstallFolderAfterRun'
 KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT = False
 CHANGE_ORIGIN_LIBRARY = 'changeOriginLibrary'
-CHANGE_ORIGIN_LIBRARY_DEFAULT = False
+CHANGE_ORIGIN_LIBRARY_DEFAULT = True
 CONAN_RUN_PRE_STEP = 'conanRunPreStep'
 CONAN_RUN_PRE_STEP_DEFAULT = False
+INCLUDE_BUILD_REQUIRES_PACKAGES = 'includeBuildRequiresPackages'
+INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT = True
 WS_URL = 'wsUrl'
 conan_profile = dict()
 
@@ -69,6 +69,7 @@ class Config:
         self.unified_agent_path = conf.get('unified_agent_path')
         self.conan_install_folder = conf.get('conan_install_folder')
         self.keep_conan_install_folder_after_run = conf.get('keep_conan_install_folder_after_run')
+        self.include_build_requires_packages = conf.get('include_build_requires_packages')
         self.conan_run_pre_step = conf.get('conan_run_pre_step')
         self.change_origin_library = conf.get('change_origin_library')
         self.ws_url = conf.get('ws_url')
@@ -159,7 +160,10 @@ def map_all_dependencies(config):
     try:
         deps_json_file = os.path.join(config.temp_dir, 'deps.json')
         logging.info(f"Mapping project's dependencies to {deps_json_file}")
-        output = subprocess.check_output(f"conan info {config.project_path} --paths --dry-build  --json {deps_json_file}  ", shell=True, stderr=subprocess.STDOUT).decode()
+        if config.include_build_requires_packages:
+            output = subprocess.check_output(f"conan info {config.project_path} --paths --dry-build --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
+        else:
+            output = subprocess.check_output(f"conan info {config.project_path} --paths --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
         logging.info(f'\n{output}')  # Todo add print of deps.json
 
         with open(deps_json_file, encoding='utf-8') as f:
@@ -414,24 +418,28 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
         project_source_files_inventory_to_remap_second_phase = []
         libraries_key_uuid_and_source_files_sha1 = defaultdict(list)
 
-        missing_sf_counter = 0
+        # ToDo project_source_files_inventory_to_remap_first_phase_dict_by_source_file_path = convert_dict_list_to_dict(project_source_files_inventory_to_remap_first_phase, 'path')
+
+        missing_sf_counter_is_index_key_uuid = 0
+        missing_sf_counter_is_not_index_key_uuid = 0
         for package in conan_dependencies_new:
             for source_file in project_source_files_inventory_to_remap_first_phase:
                 if package['package_name'] in source_file['path'] or package['source_folder'] in source_file['path']:
-                    if source_file.get('download_link') in str(project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])):
+                    if source_file.get('download_link') is not None and source_file.get('download_link') in str(project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])):
                         package['counter'] += 1
-                    elif source_file.get('download_link') not in str(project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])):
-                        if package.get('key_uuid'):
-                            source_file['sc_counter'] += 1
-                            libraries_key_uuid_and_source_files_sha1[json.dumps(package['key_uuid'])].append(source_file['sha1'])
-                        else:
-                            source_file['sc_counter'] += 1
-                            project_source_files_inventory_to_remap_second_phase.append(source_file)
-                        missing_sf_counter += 1
+                    elif package.get('key_uuid'):
+                        source_file['sc_counter'] += 1
+                        libraries_key_uuid_and_source_files_sha1[json.dumps(package['key_uuid'])].append(source_file['sha1'])
+                        missing_sf_counter_is_index_key_uuid += 1
+                    else:
+                        source_file['sc_counter'] += 1
+                        project_source_files_inventory_to_remap_second_phase.append(source_file)
+                        missing_sf_counter_is_not_index_key_uuid += 1
             if package['counter'] > 0:
                 logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library ({project_inventory_dict_by_download_link.get(package['conandata_yml_download_url'])['filename']}) in {org_name}")
             else:
                 logging.info(f"for {package['package_name']} conan package: {package['counter']} source files are mapped to the correct library in {org_name}")
+        missing_sf_counter = missing_sf_counter_is_index_key_uuid + missing_sf_counter_is_not_index_key_uuid
         logging.info(f"There are {missing_sf_counter} source files that can be re-mapped to the correct conan source library in {org_name}")
         return project_source_files_inventory_to_remap_second_phase, libraries_key_uuid_and_source_files_sha1
 
@@ -607,6 +615,7 @@ def create_configuration():
         parser = argparse.ArgumentParser(description='argument parser')
 
         parser.add_argument('-s', "--" + KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, help="keep the install folder after run", dest='keep_conan_install_folder_after_run', required=False, default=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT, type=str2bool)
+        parser.add_argument('-b', "--" + INCLUDE_BUILD_REQUIRES_PACKAGES, help="If ture , list conan packages with conan info /path/to/conanfile --paths --dry-build.", type=str2bool, required=False, default=INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT, dest='include_build_requires_packages')
         parser.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
         parser.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
         parser.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
@@ -621,7 +630,7 @@ def create_configuration():
         remaining = parser.parse_known_args()
         parser.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=Path, required=False, default=remaining[0].project_path, dest='unified_agent_path')
         remaining = parser.parse_known_args()
-        parser.add_argument('-if', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=Path, required=False, default=remaining[0].project_path, dest='conan_install_folder')
+        parser.add_argument('-i', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=Path, required=False, default=remaining[0].project_path, dest='conan_install_folder')
 
         args_dict = vars(parser.parse_args())
 
