@@ -288,20 +288,16 @@ def scan_with_unified_agent(config, dirs_to_scan):
     for item in dirs_to_scan:
         dirs.append(str(Path(item).absolute()))
 
-    ws_includes = os.environ.get('WS_INCLUDES')
-    ws_archive_extraction_depth = os.environ.get('WS_ARCHIVEEXTRACTIONDEPTH')
-    ws_archive_includes = os.environ.get('WS_ARCHIVEINCLUDES')
-    ws_log_level = os.environ.get('WS_LOGLEVEL')
-    ws_excludes=os.environ.get('WS_EXCLUDES')
-    ws_exclude_hardcoded="**/ws_conan_scanned_*,jna-1649909383"
-    ws_excludes_default="**/*conan_export.tgz,**/*conan_package.tgz,**/*conanfile.py,**/node_modules,**/src/test,**/testdata,**/*sources.jar,**/*javadoc.jar"
-
     unified_agent = ws_sdk.web.WSClient(user_key=config.user_key, token=config.org_token, url=config.ws_url, ua_path=config.unified_agent_path)
-    unified_agent.ua_conf.includes = ws_includes if ws_includes is not None else '**/*.*'
-    unified_agent.ua_conf.excludes = ws_exclude_hardcoded+ws_excludes if ws_excludes is not None else ws_exclude_hardcoded+ws_excludes_default
-    unified_agent.ua_conf.archiveExtractionDepth = ws_archive_extraction_depth if ws_archive_extraction_depth is not None else str(UAArchiveFiles.ARCHIVE_EXTRACTION_DEPTH_MAX)
-    unified_agent.ua_conf.archiveIncludes = ws_archive_includes if ws_archive_includes is not None else list(UAArchiveFiles.ALL_ARCHIVE_FILES)
-    unified_agent.ua_conf.logLevel = ws_log_level if ws_log_level is not None else 'debug'
+    unified_agent.ua_conf.includes = '**/*.*'
+
+    ws_exclude_hardcoded = "**/ws_conan_scanned_*,jna-1649909383"
+    ws_excludes_default = "**/*conan_export.tgz,**/*conan_package.tgz,**/*conanfile.py,**/node_modules,**/src/test,**/testdata,**/*sources.jar,**/*javadoc.jar"
+    os.environ['WS_EXCLUDES'] = os.environ.get('WS_EXCLUDES') + ',' + ws_exclude_hardcoded if os.environ.get('WS_EXCLUDES') is not None else os.environ.get('WS_EXCLUDES', '') + ws_exclude_hardcoded + ',' + ws_excludes_default
+
+    unified_agent.ua_conf.archiveExtractionDepth = str(UAArchiveFiles.ARCHIVE_EXTRACTION_DEPTH_MAX)
+    unified_agent.ua_conf.archiveIncludes = list(UAArchiveFiles.ALL_ARCHIVE_FILES)
+    unified_agent.ua_conf.logLevel = 'debug'
     # unified_agent.ua_conf.scanPackageManager = True #Todo - check for support in favor of https://docs.conan.io/en/latest/reference/conanfile/methods.html?highlight=system_requirements#system-requirements
 
     output = unified_agent.scan(scan_dir=dirs,
