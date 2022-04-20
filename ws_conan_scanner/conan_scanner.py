@@ -20,7 +20,7 @@ import ws_sdk
 import yaml
 from ws_sdk.ws_constants import UAArchiveFiles
 # from ws_sdk import *
-from ws_sdk.ws_utilities import convert_dict_list_to_dict
+from ws_sdk.ws_utilities import convert_dict_list_to_dict, PathType
 
 from ws_conan_scanner._version import __tool_name__, __version__, __description__
 
@@ -84,20 +84,6 @@ class Config:
         self.date_time_now = datetime.now().strftime('%Y%m%d%H%M%S%f')
         self.temp_dir = Path(self.conan_install_folder, self.date_time_now)
 
-        invalid_params = []
-
-        if not os.path.exists(self.project_path):
-            invalid_params.append({'projectPath': self.project_path})
-            logging.error(f"Please validate that the projectPath path exists")
-
-        if not os.path.exists(self.unified_agent_path):
-            invalid_params.append({'unifiedAgentPath': self.unified_agent_path})
-            logging.error(f"Please validate that the unifiedAgentPath path exists")
-
-        if not os.path.exists(self.conan_install_folder):
-            invalid_params.append({'conanInstallFolder': self.conan_install_folder})
-            logging.error(f"Please validate that the conanInstallFolder path exists")
-
         # Set connection for API calls
         self.ws_conn = ws_sdk.web.WSApp(url=self.ws_url,
                                         user_key=self.user_key,
@@ -106,10 +92,6 @@ class Config:
 
         logging.info(f"ws connections details:\nwsURL: {self.ws_url}\norgToken: {self.org_token}")
         self.ws_conn_details = self.ws_conn.get_organization_details()
-
-        if len(invalid_params) > 0:
-            logging.info(f"The following parameters should be fixed :\n{invalid_params}")
-            sys.exit()
 
 
 def validate_conan_installed():
@@ -307,23 +289,22 @@ def scan_with_unified_agent(config, dirs_to_scan):
         dirs.append(str(Path(item).absolute()))
 
     unified_agent = ws_sdk.web.WSClient(user_key=config.user_key, token=config.org_token, url=config.ws_url, ua_path=config.unified_agent_path)
-    unified_agent.ua_conf.projectPerFolder = str(False)
-    unified_agent.ua_conf.productName = config.product_name
-    unified_agent.ua_conf.productToken = config.product_token
-    unified_agent.ua_conf.projectName = config.project_name
-    unified_agent.ua_conf.projectToken = config.project_token
     unified_agent.ua_conf.includes = '**/*.*'
-    unified_agent.ua_conf.excludes = str(f"**/ws_conan_scanned_*,{os.environ.get('WS_EXCLUDES', '')}")
+
+    ws_exclude_hardcoded = "**/ws_conan_scanned_*,jna-1649909383"
+    ws_excludes_default = "**/*conan_export.tgz,**/*conan_package.tgz,**/*conanfile.py,**/node_modules,**/src/test,**/testdata,**/*sources.jar,**/*javadoc.jar"
+    os.environ['WS_EXCLUDES'] = os.environ.get('WS_EXCLUDES') + ',' + ws_exclude_hardcoded if os.environ.get('WS_EXCLUDES') is not None else os.environ.get('WS_EXCLUDES', '') + ws_exclude_hardcoded + ',' + ws_excludes_default
+
     unified_agent.ua_conf.archiveExtractionDepth = str(UAArchiveFiles.ARCHIVE_EXTRACTION_DEPTH_MAX)
     unified_agent.ua_conf.archiveIncludes = list(UAArchiveFiles.ALL_ARCHIVE_FILES)
     unified_agent.ua_conf.logLevel = 'debug'
     # unified_agent.ua_conf.scanPackageManager = True #Todo - check for support in favor of https://docs.conan.io/en/latest/reference/conanfile/methods.html?highlight=system_requirements#system-requirements
 
     output = unified_agent.scan(scan_dir=dirs,
-                                product_name=unified_agent.ua_conf.productName,
-                                product_token=unified_agent.ua_conf.productToken,
-                                project_name=unified_agent.ua_conf.projectName,
-                                project_token=unified_agent.ua_conf.projectToken)
+                                product_name=config.product_name,
+                                product_token=config.product_token,
+                                project_name=config.project_name,
+                                project_token=config.project_token)
     logging.info(output[1])
     support_token = output[2]  # gets Support Token from scan output
 
@@ -626,11 +607,11 @@ def create_configuration():
         parser.add_argument('--' + PRODUCT_NAME, help='The product name', required=False, dest='product_name')
         parser.add_argument('--' + PROJECT_NAME, help='The project name', required=False, dest='project_name')
         # parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
-        parser.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the conanfile.txt / conanfile.py path", type=Path, required=True, dest='project_path')
+        parser.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the conanfile.txt / conanfile.py path", type=PathType(checked_type='dir'), required=True, dest='project_path')
         remaining = parser.parse_known_args()
-        parser.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=Path, required=False, default=remaining[0].project_path, dest='unified_agent_path')
+        parser.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=PathType(checked_type='dir'), required=False, default=remaining[0].project_path, dest='unified_agent_path')
         remaining = parser.parse_known_args()
-        parser.add_argument('-i', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=Path, required=False, default=remaining[0].project_path, dest='conan_install_folder')
+        parser.add_argument('-i', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=PathType(checked_type='dir'), required=False, default=remaining[0].project_path, dest='conan_install_folder')
 
         args_dict = vars(parser.parse_args())
 

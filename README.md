@@ -27,7 +27,7 @@ Execute `pip install ws-conan-scanner`
 ### Configuration Parameters
 
 | Parameter | Type | Required | Default | Description |
-| :--- | :---: | :---: | :---: | :--- |
+| --- | --- | --- | --- | --- |
 | **&#x2011;h,&nbsp;&#x2011;&#x2011;help** | switch | No | |Shows help and usage menu. |
 | **&#x2011;d,&nbsp;&#x2011;&#x2011;projectPath** | string | Yes | |The full path directory which contains the `conanfile.txt` / `conanfile.py` path. |
 | **&#x2011;a,&nbsp;&#x2011;&#x2011;unifiedAgentPath** | string | No |projectPath|The full path directory which contains the Unified Agent ( will be downloaded if not found on in path.|
@@ -55,6 +55,22 @@ With customized behavior
 ```
 ws_conan_scanner  --projectPath /path/to/folder/with/conanfile --unifiedAgentPath /path/to/folder/with/ws/unified/agent --conanInstallFolder /path/to/install/folder --keepConanInstallFolderAfterRun True  --includeBuildRequiresPackages True --conanRunPreStep True --changeOriginLibrary True --wsUrl https://saas.whitesourcesoftware.com --userKey 12345678 --orgToken 87654321 --productName TestProd --projectName TestProj
 ```
+### Unified Agent Specifications
+
+The Conan scanner is a wrapper to the Whitesource [Unified Agent](https://whitesource.atlassian.net/wiki/spaces/WD/pages/804814917/Unified+Agent+Overview).
+
+To set any of the [Unified Agent Configuration Parameters](https://whitesource.atlassian.net/wiki/spaces/WD/pages/1544880156/Unified+Agent+Configuration+Parameters) , please use the `WS_` [Environemnt Variables](https://whitesource.atlassian.net/wiki/spaces/WD/pages/1544880156/Unified+Agent+Configuration+Parameters#Configuring-the-Unified-Agent-by-Environment-Variables) convention.
+
+
+For the `excludes` parameter the following extensions are hardcoded :
+```
+excludes = **/ws_conan_scanned_*,jna-1649909383
+```
+You can add more [extensions](https://whitesource.atlassian.net/wiki/spaces/WD/pages/1544880156/Unified+Agent+Configuration+Parameters#Includes%2FExcludes-Glob-Patterns) with `WS_EXCLUDES` environment variable .
+
+
+
+
 
 ### Author
 WhiteSource Software ©
