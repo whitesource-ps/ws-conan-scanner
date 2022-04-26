@@ -471,8 +471,6 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
     # -=Filtering on project's source libraries download link compared with url from conandata.yml --> if it's the same , WhiteSource source files matching was correct and no need to change.=-
 
     # Reducing source files which were mapped to the correct source library ( based on url from conandata.yml )
-    packages_dict_by_download_link = convert_dict_list_to_dict(lst=conan_dependencies_new, key_desc='conandata_yml_download_url')
-
     project_token = get_project_token_from_config(config)
     project_due_diligence_dict_by_library_name = process_project_due_diligence_report(config, project_token)
     project_source_files_inventory = config.ws_conn.get_source_file_inventory(report=False, token=project_token)
@@ -586,47 +584,6 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def create_configuration():
-    """reads the configuration from cli."""
-
-    def get_args(arguments) -> dict:
-        """Get configuration arguments"""
-
-        parser = argparse.ArgumentParser(description='argument parser')
-
-        parser.add_argument('-s', "--" + KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, help="keep the install folder after run", dest='keep_conan_install_folder_after_run', required=False, default=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT, type=str2bool)
-        parser.add_argument('-b', "--" + INCLUDE_BUILD_REQUIRES_PACKAGES, help="If ture , list conan packages with conan info /path/to/conanfile --paths --dry-build.", type=str2bool, required=False, default=INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT, dest='include_build_requires_packages')
-        parser.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
-        parser.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
-        parser.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
-        parser.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=True, dest='user_key')
-        parser.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=True, dest='org_token')
-        parser.add_argument('--' + PRODUCT_TOKEN, help='The product token', required=False, dest='product_token')
-        parser.add_argument('--' + PROJECT_TOKEN, help='The project token', required=False, dest='project_token')
-        parser.add_argument('--' + PRODUCT_NAME, help='The product name', required=False, dest='product_name')
-        parser.add_argument('--' + PROJECT_NAME, help='The project name', required=False, dest='project_name')
-
-        # parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
-        parser.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the conanfile.txt / conanfile.py path", type=PathType(checked_type='dir'), required=True, dest='project_path')
-        remaining = parser.parse_known_args()
-        parser.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=PathType(checked_type='dir'), required=False, default=remaining[0].project_path, dest='unified_agent_path')
-        remaining = parser.parse_known_args()
-        parser.add_argument('-i', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=PathType(checked_type='dir'), required=False, default=remaining[0].project_path, dest='conan_install_folder')
-        remaining = parser.parse_known_args()
-        parser.add_argument('-l', '--' + LOG_FILE_PATH, help='Path to the conan_scanner_log_`%Y%m%d%H%M%S%f`.log file', required=False, type=PathType(checked_type='dir'), dest='log_file_path')
-        args_dict = vars(parser.parse_args())
-
-        create_logger(args_dict)
-
-        logger.info('Finished analyzing arguments.')
-        return args_dict
-
-    args = sys.argv[1:]
-    if len(args) > 0:
-        params_conf = get_args(args)
-        return Config(conf=params_conf)
-
-
 def remove_previous_run_temp_folder(conf):
     try:
         prev_folder = str(Path(conf.conan_install_folder, TEMP_FOLDER_PREFIX + "*"))
@@ -652,6 +609,62 @@ def create_logger(args):
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(formatter)
     logger.addHandler(sh)
+
+def create_configuration():
+    """reads the configuration from cli."""
+
+    def get_args(arguments) -> dict:
+        """Get configuration arguments"""
+
+        parser = argparse.ArgumentParser(description='argument parser',add_help=False)
+
+        required = parser.add_argument_group('required arguments')
+        optional = parser.add_argument_group('optional arguments')
+
+        # Add back help
+        optional.add_argument(
+            '-h',
+            '--help',
+            action='help',
+            default=argparse.SUPPRESS,
+            help='show this help message and exit'
+        )
+
+        optional.add_argument('-s', "--" + KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, help="keep the install folder after run", dest='keep_conan_install_folder_after_run', required=False, default=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT, type=str2bool)
+        optional.add_argument('-b', "--" + INCLUDE_BUILD_REQUIRES_PACKAGES, help="If ture , list conan packages with conan info /path/to/conanfile --paths --dry-build.", type=str2bool, required=False, default=INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT, dest='include_build_requires_packages')
+        optional.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
+        optional.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
+        required.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
+        required.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=True, dest='user_key')
+        required.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=True, dest='org_token')
+        optional.add_argument('--' + PRODUCT_TOKEN, help='The product token', required=False, dest='product_token')
+        optional.add_argument('--' + PROJECT_TOKEN, help='The project token', required=False, dest='project_token')
+        optional.add_argument('--' + PRODUCT_NAME, help='The product name', required=False, dest='product_name')
+        optional.add_argument('--' + PROJECT_NAME, help='The project name', required=False, dest='project_name')
+        optional.add_argument('-l', '--' + LOG_FILE_PATH, help='Path to the conan_scanner_log_YYYYMMDDHHMMSS.log file', required=False, type=PathType(checked_type='dir'), dest='log_file_path')
+        # parser.add_argument('-m', '--' + PROJECT_PARALLELISM_LEVEL, help='The number of threads to run with', required=not is_config_file, dest='project_parallelism_level', type=int, default=PROJECT_PARALLELISM_LEVEL_DEFAULT, choices=PROJECT_PARALLELISM_LEVEL_RANGE)
+
+        required.add_argument('-d', "--" + PROJECT_PATH, help=f"The directory which contains the conanfile.txt / conanfile.py path", type=PathType(checked_type='dir'), required=True, dest='project_path')
+        remaining = parser.parse_known_args()
+        optional.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=PathType(checked_type='dir'), required=False, default=remaining[0].project_path, dest='unified_agent_path')
+        remaining = parser.parse_known_args()
+        optional.add_argument('-i', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=PathType(checked_type='dir'), required=False, default=remaining[0].project_path, dest='conan_install_folder')
+        remaining = parser.parse_known_args()
+
+        args_dict = vars(parser.parse_args())
+
+        create_logger(args_dict)
+
+        logger.info('Finished analyzing arguments.')
+        return args_dict
+
+    args = sys.argv[1:]
+    if len(args) > 0:
+        params_conf = get_args(args)
+        return Config(conf=params_conf)
+
+
+
 
 
 def main():
