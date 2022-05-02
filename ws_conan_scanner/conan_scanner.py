@@ -48,6 +48,8 @@ CONAN_RUN_PRE_STEP = 'conanRunPreStep'
 CONAN_RUN_PRE_STEP_DEFAULT = False
 INCLUDE_BUILD_REQUIRES_PACKAGES = 'includeBuildRequiresPackages'
 INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT = True
+CONAN_PROFILE_NAME = 'conanProfileName'
+CONAN_PROFILE_NAME_DEFAULT = 'default'
 WS_URL = 'wsUrl'
 LOG_FILE_PATH = 'logFilePath'
 conan_profile = dict()
@@ -63,11 +65,13 @@ TEMP_FOLDER_PREFIX = 'conan_scanner_pre_process_'
 DATE_TIME_NOW = datetime.now().strftime('%Y%m%d%H%M%S%f')
 
 
+
 class Config:
     def __init__(self, conf: dict):
         self.project_path = conf.get('project_path')
         self.unified_agent_path = conf.get('unified_agent_path')
         self.conan_install_folder = conf.get('conan_install_folder')
+        self.conan_profile_name = conf.get('conan_profile_name')
         self.keep_conan_install_folder_after_run = conf.get('keep_conan_install_folder_after_run')
         self.include_build_requires_packages = conf.get('include_build_requires_packages')
         self.conan_run_pre_step = conf.get('conan_run_pre_step')
@@ -105,22 +109,21 @@ def validate_conan_installed():
         sys.exit(1)
 
 
-def map_conan_profile_values():
+def map_conan_profile_values(conf):
     global conan_profile
 
-    conan_profile = {
-        'os': subprocess.Popen("conan profile get settings.os default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'os_build': subprocess.Popen("conan profile get settings.os_build default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'arch': subprocess.Popen("conan profile get settings.arch default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'arch_build': subprocess.Popen("conan profile get settings.arch_build default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'compiler': subprocess.Popen("conan profile get settings.compiler default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'compiler.runtime': subprocess.Popen("conan profile get settings.compiler.runtime default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'compiler.version': subprocess.Popen("conan profile get settings.compiler.version default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0],
-        'build_type': subprocess.Popen("conan profile get settings.build_type default", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0]
-    }
+    try:
+        subprocess.check_output(f"conan profile show {conf.conan_profile_name}", shell=True, stderr=subprocess.STDOUT).decode()
+    except subprocess.CalledProcessError as e:
+        logger.error(e.output.decode())
+        logger.info(f"The conan scanner will stop due to a failure to find the conan profile: {conf.conan_profile_name}")
+        sys.exit(1)
 
-    for k, v in conan_profile.items():
-        conan_profile[k] = ''.join(v.partition('\n')[0:1])
+    params = ('os', 'os_build', 'arch', 'arch_build', 'compiler', 'compiler.runtime', 'compiler.version', 'build_type')
+    conan_profile = {}
+    for param in params:
+        output = subprocess.Popen(f"conan profile get settings.{param} {conf.conan_profile_name}", shell=True, stdout=subprocess.PIPE, text=True).communicate()[0]
+        conan_profile[param] = ''.join(output.partition('\n')[0:1])
 
 
 def validate_project_manifest_file_exists(config):
@@ -162,6 +165,7 @@ def map_all_dependencies(config):
 def run_conan_install_command(config):
     """ Allocate the scanned project dependencies in the conanInstallFolder"""
     try:
+        # pathlib.Path(config.temp_dir).mkdir(parents=True, exist_ok=False)
         logger.info(f"conanRunPreStep is set to {config.conan_run_pre_step} - will run 'conan install --build' command.")
         output = subprocess.check_output(f"conan install {config.project_path} --install-folder {config.temp_dir} --build", shell=True, stderr=subprocess.STDOUT).decode()
         logger.info(output)
@@ -196,7 +200,7 @@ def get_dependencies_from_download_source(config, source_folders_missing, conan_
     for item in source_folders_missing:
         export_folder = dependencies_list_dict[item].get('export_folder')
         package_directory = os.path.join(config.directory, item.split('/')[0] + '-' + item.split('/')[1])  # replace  '/' with '-' to align with whitesource convention .
-        pathlib.Path(package_directory).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(package_directory).mkdir(parents=True, exist_ok=False)
 
         dependency_conan_data_yml = os.path.join(export_folder, 'conandata.yml')  # Check for conandata.yml file
 
@@ -469,7 +473,7 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
 
         for package in conan_dependencies_new:
             for source_file in project_source_files_inventory_to_remap_third_phase:
-                if source_file.get('sha1')=='111795e0d4c4713027b916d3cd610f92a8f33d98':
+                if source_file.get('sha1') == '111795e0d4c4713027b916d3cd610f92a8f33d98':
                     pass
                 if package['package_full_name'] in source_file['path'] or package['source_folder'] in source_file['path']:
                     source_file['download_link'] = package.get('conandata_yml_download_url')  # Todo check if can be removed
@@ -560,23 +564,23 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
                 else:
                     logger.info(f"Match was not found by global search for miss configured source files of {package}")
                     logger.info(f"Trying match the remaining miss configured source files of {package} with name match")
-                    project_source_files_inventory_to_remap_third_phase_dict=convert_dict_list_to_dict(lst=project_source_files_inventory_to_remap_third_phase,key_desc='sha1')
+                    project_source_files_inventory_to_remap_third_phase_dict = convert_dict_list_to_dict(lst=project_source_files_inventory_to_remap_third_phase, key_desc='sha1')
 
                     for library in project_inventory:
                         list1 = library.get('filename').lower()
-                        list2=[packages_dict_by_package_full_name.get(package).get('name'),packages_dict_by_package_full_name.get(package).get('version')]
-                        result=all(elem in list1 for elem in list2)
+                        list2 = [packages_dict_by_package_full_name.get(package).get('name'), packages_dict_by_package_full_name.get(package).get('version')]
+                        result = all(elem in list1 for elem in list2)
 
                         if result and library.get('type') == 'SOURCE_LIBRARY':
                             library_key_uuid = library.get('keyUuid')
                             sha1s_final = []
 
                             for sha1 in sha1s:
-                                if project_source_files_inventory_to_remap_third_phase_dict.get(sha1).get('source_lib_full_name')==library.get('filename'):
+                                if project_source_files_inventory_to_remap_third_phase_dict.get(sha1).get('source_lib_full_name') == library.get('filename'):
                                     logger.info(f"sha1: {sha1} is already mapped to {library.get('filename')}")
                                 else:
                                     sha1s_final.append(sha1)
-                            if len(sha1s_final)>0:
+                            if len(sha1s_final) > 0:
                                 try:
                                     config.ws_conn.change_origin_of_source_lib(lib_uuid=library_key_uuid,
                                                                                source_files_sha1=sha1s_final,
@@ -589,7 +593,7 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
                                 counter += 1
                                 logger.info(f"--{counter}/{len(remaining_conan_local_packages_and_source_files_sha1)} libraries were matched ( {len(sha1s_final)} mis-configured source files from {package} conan package were matched to {library.get('filename')} WS source library )")
                             else:
-                                no_match=False
+                                no_match = False
                 if no_match:
                     logger.info(f"Match was not found by name for miss configured source files of {package}")
                     logger.info(f"Did not find match for {package} package remaining source files.")
@@ -600,7 +604,7 @@ def extract_url_from_conan_data_yml(source, package):
     try:
         with open(source) as a_yaml_file:
             parsed_yaml_file = yaml.load(a_yaml_file, Loader=yaml.FullLoader)
-        temp = parsed_yaml_file['sources']
+        temp = parsed_yaml_file.get('sources')
         for key, value in temp.items():
             url = value.get('url')
             if isinstance(url, dict) and url.get(conan_profile['os_build']):
@@ -635,6 +639,8 @@ def str2bool(v):
 
 
 def remove_previous_run_temp_folder(conf):
+    """Remove temp folders from previous run of the connan scanner / UA"""
+
     def remove_folder(folder_path_pattern):
         try:
             for item in glob.iglob(folder_path_pattern, recursive=True):
@@ -668,30 +674,23 @@ def create_logger(args):
     logger.addHandler(sh)
 
 
-def create_configuration():
+def create_configuration() -> Config:
     """reads the configuration from cli."""
 
     def get_args(arguments) -> dict:
         """Get configuration arguments"""
 
-        parser = argparse.ArgumentParser(description='argument parser', add_help=False)
+        parser = argparse.ArgumentParser(description='argument parser', add_help=True)
 
         required = parser.add_argument_group('required arguments')
         optional = parser.add_argument_group('optional arguments')
         ua_prod_proj = parser.add_argument_group('Unified Agetn Product / Project')
 
-        # Add back help
-        optional.add_argument(
-            '-h',
-            '--help',
-            action='help',
-            default=argparse.SUPPRESS,
-            help='show this help message and exit'
-        )
         optional.add_argument('-s', "--" + KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN, help="keep the install folder after run", dest='keep_conan_install_folder_after_run', required=False, default=KEEP_CONAN_INSTALL_FOLDER_AFTER_RUN_DEFAULT, type=str2bool)
         optional.add_argument('-b', "--" + INCLUDE_BUILD_REQUIRES_PACKAGES, help="If ture , list conan packages with conan info /path/to/conanfile --paths --dry-build.", type=str2bool, required=False, default=INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT, dest='include_build_requires_packages')
         optional.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
         optional.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
+        optional.add_argument('-f', "--" + CONAN_PROFILE_NAME, help="The name of the conan profile", dest='conan_profile_name', required=False, default=CONAN_PROFILE_NAME_DEFAULT)
         required.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
         required.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=True, dest='user_key')
         required.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=True, dest='org_token')
@@ -717,7 +716,8 @@ def create_configuration():
     args = sys.argv[1:]
     if len(args) > 0:
         params_conf = get_args(args)
-        return Config(conf=params_conf)
+        conf = Config(conf=params_conf)
+    return conf
 
 
 def main():
@@ -727,13 +727,13 @@ def main():
     start_time = datetime.now()
     logger.info(f"Start running {__description__} on token {config.org_token}.")
     validate_conan_installed()
-    map_conan_profile_values()
+    map_conan_profile_values(config)
     validate_project_manifest_file_exists(config)
+
+    conan_dependencies = map_all_dependencies(config)
 
     if config.conan_run_pre_step:
         run_conan_install_command(config)
-
-    conan_dependencies = map_all_dependencies(config)
 
     dirs_to_scan = [config.project_path]
 
@@ -770,5 +770,4 @@ def main():
 
 if __name__ == '__main__':
     gc.collect()
-
     main()
