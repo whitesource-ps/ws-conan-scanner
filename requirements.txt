@@ -3,5 +3,5 @@ requests~=2.27.0
 configparser~=5.0.2
 DateTime~=4.3
 PyYAML~=5.4.1
-ws-sdk~=0.9.0.8
+ws-sdk~=0.10.2
 urllib3~=1.26.7
