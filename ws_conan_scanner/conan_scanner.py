@@ -1,10 +1,8 @@
 import argparse
-import csv
 import glob
 from logging.handlers import RotatingFileHandler
 
 import gc
-import io
 import json
 import logging
 import os
@@ -22,9 +20,10 @@ import urllib3
 import ws_sdk
 import yaml
 from ws_sdk.ws_constants import UAArchiveFiles
-# from ws_sdk import *
+
 from ws_sdk.ws_utilities import convert_dict_list_to_dict, PathType
 from ws_conan_scanner._version import __tool_name__, __version__, __description__
+from ws_conan_scanner.utils import csv_to_json, str2bool
 
 # Config file variables
 DEFAULT_CONFIG_FILE = 'params.config'
@@ -50,6 +49,9 @@ INCLUDE_BUILD_REQUIRES_PACKAGES = 'includeBuildRequiresPackages'
 INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT = True
 CONAN_PROFILE_NAME = 'conanProfileName'
 CONAN_PROFILE_NAME_DEFAULT = 'default'
+MAIN_CONAN_PACKAGE = 'conanMainPackage'
+MAIN_CONAN_PACKAGE_DEFAULT = None
+
 WS_URL = 'wsUrl'
 LOG_FILE_PATH = 'logFilePath'
 conan_profile = dict()
@@ -65,13 +67,13 @@ TEMP_FOLDER_PREFIX = 'conan_scanner_pre_process_'
 DATE_TIME_NOW = datetime.now().strftime('%Y%m%d%H%M%S%f')
 
 
-
 class Config:
     def __init__(self, conf: dict):
         self.project_path = conf.get('project_path')
         self.unified_agent_path = conf.get('unified_agent_path')
         self.conan_install_folder = conf.get('conan_install_folder')
         self.conan_profile_name = conf.get('conan_profile_name')
+        self.main_conan_package = conf.get('main_conan_package')
         self.keep_conan_install_folder_after_run = conf.get('keep_conan_install_folder_after_run')
         self.include_build_requires_packages = conf.get('include_build_requires_packages')
         self.conan_run_pre_step = conf.get('conan_run_pre_step')
@@ -146,10 +148,18 @@ def map_all_dependencies(config):
     try:
         deps_json_file = os.path.join(config.temp_dir, 'deps.json')
         logger.info(f"Mapping project's dependencies to {deps_json_file}")
+
+        install_ref = config.project_path
+        if config.main_conan_package:
+            install_ref = config.main_conan_package
+            if '@' not in install_ref:
+                install_ref = install_ref + '@'
+
         if config.include_build_requires_packages:
-            output = subprocess.check_output(f"conan info {config.project_path} --paths --dry-build --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
+            output = subprocess.check_output(f"conan info {install_ref} --paths --dry-build --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
         else:
-            output = subprocess.check_output(f"conan info {config.project_path} --paths --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
+            output = subprocess.check_output(f"conan info {install_ref} --paths --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
+
         logger.info(f'\n{output}')  # Todo add print of deps.json
 
         with open(deps_json_file, encoding='utf-8') as f:
@@ -473,8 +483,6 @@ def change_project_source_file_inventory_match(config, conan_dependencies_new):
 
         for package in conan_dependencies_new:
             for source_file in project_source_files_inventory_to_remap_third_phase:
-                if source_file.get('sha1') == '111795e0d4c4713027b916d3cd610f92a8f33d98':
-                    pass
                 if package['package_full_name'] in source_file['path'] or package['source_folder'] in source_file['path']:
                     source_file['download_link'] = package.get('conandata_yml_download_url')  # Todo check if can be removed
                     packages_and_source_files_sha1[json.dumps(package['package_full_name'])].append(source_file['sha1'])
@@ -618,26 +626,6 @@ def extract_url_from_conan_data_yml(source, package):
         logger.warning(f"Could not find {package} conandata.yml file")
 
 
-def csv_to_json(csvFilePath):
-    r_bytes = requests.get(csvFilePath).content
-    r = r_bytes.decode('utf8')
-    reader = csv.DictReader(io.StringIO(r))
-    result_csv_reader = json.dumps(list(reader))
-    json_result = json.loads(result_csv_reader)
-    return json_result
-
-
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 'True', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'False', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
 def remove_previous_run_temp_folder(conf):
     """Remove temp folders from previous run of the connan scanner / UA"""
 
@@ -691,6 +679,7 @@ def create_configuration() -> Config:
         optional.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
         optional.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
         optional.add_argument('-f', "--" + CONAN_PROFILE_NAME, help="The name of the conan profile", dest='conan_profile_name', required=False, default=CONAN_PROFILE_NAME_DEFAULT)
+        optional.add_argument('-m', "--" + MAIN_CONAN_PACKAGE, help="Include the package_name/package_version@user/channel of the project's conanfile package", dest='main_conan_package', required=False, default=MAIN_CONAN_PACKAGE_DEFAULT)
         required.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
         required.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=True, dest='user_key')
         required.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=True, dest='org_token')
@@ -704,8 +693,10 @@ def create_configuration() -> Config:
 
         if '--' + PROJECT_PATH in args:
             project_p = arguments[arguments.index('--' + PROJECT_PATH) + 1]
-        else:
+        elif '-d' in args:
             project_p = arguments[arguments.index('-d') + 1]
+        else:
+            project_p = None
         optional.add_argument('-a', "--" + UNIFIED_AGENT_PATH, help=f"The directory which contains the Unified Agent", type=PathType(checked_type='dir'), required=False, default=project_p, dest='unified_agent_path')
         optional.add_argument('-i', "--" + CONAN_INSTALL_FOLDER, help=f"The folder in which the installation of packages outputs the generator files with the information of dependencies. Format: Y-m-d-H-M-S-f", type=PathType(checked_type='dir'), required=False, default=project_p, dest='conan_install_folder')
 
