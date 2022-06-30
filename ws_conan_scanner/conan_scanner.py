@@ -1,10 +1,8 @@
 import argparse
 import glob
-from logging.handlers import RotatingFileHandler
 
 import gc
 import json
-import logging
 import os
 import pathlib
 import shutil
@@ -23,7 +21,7 @@ from ws_sdk.ws_constants import UAArchiveFiles
 
 from ws_sdk.ws_utilities import convert_dict_list_to_dict, PathType
 from ws_conan_scanner._version import __tool_name__, __version__, __description__
-from ws_conan_scanner.utils import csv_to_json, str2bool
+from ws_conan_scanner.utils import csv_to_json, str2bool, create_logger, execute_command
 
 # Config file variables
 DEFAULT_CONFIG_FILE = 'params.config'
@@ -49,8 +47,8 @@ INCLUDE_BUILD_REQUIRES_PACKAGES = 'includeBuildRequiresPackages'
 INCLUDE_BUILD_REQUIRES_PACKAGES_DEFAULT = True
 CONAN_PROFILE_NAME = 'conanProfileName'
 CONAN_PROFILE_NAME_DEFAULT = 'default'
-MAIN_CONAN_PACKAGE = 'conanMainPackage'
-MAIN_CONAN_PACKAGE_DEFAULT = None
+RESOLVE_CONAN_MAIN_PACKAGE = 'resolveConanMainPackage'
+RESOLVE_CONAN_MAIN_PACKAGE_DEFAULT = True
 
 WS_URL = 'wsUrl'
 LOG_FILE_PATH = 'logFilePath'
@@ -73,7 +71,7 @@ class Config:
         self.unified_agent_path = conf.get('unified_agent_path')
         self.conan_install_folder = conf.get('conan_install_folder')
         self.conan_profile_name = conf.get('conan_profile_name')
-        self.main_conan_package = conf.get('main_conan_package')
+        self.resolve_conan_main_package = conf.get('resolve_conan_main_package')
         self.keep_conan_install_folder_after_run = conf.get('keep_conan_install_folder_after_run')
         self.include_build_requires_packages = conf.get('include_build_requires_packages')
         self.conan_run_pre_step = conf.get('conan_run_pre_step')
@@ -103,7 +101,8 @@ class Config:
 
 def validate_conan_installed():
     """ Validate conan is installed by retrieving the Conan home directory"""
-    conan_version = subprocess.check_output(f"conan --version", shell=True, stderr=subprocess.STDOUT).decode()
+    conan_version = execute_command(f"conan --version", logger)
+
     if 'Conan version' in conan_version:
         logger.info(f"Conan identified - {conan_version} ")
     else:
@@ -135,6 +134,7 @@ def validate_project_manifest_file_exists(config):
         logger.info(f"The {CONAN_FILE_TXT} manifest file exists in your environment.")
     elif os.path.exists(os.path.join(config.project_path, CONAN_FILE_PY)):
         logger.info(f"The {CONAN_FILE_PY} manifest file exists in your environment.")
+        config.is_conanfilepy = True
     else:
         logger.error(f"A supported conanfile was not found in {config.project_path}.")
         sys.exit(1)
@@ -149,16 +149,10 @@ def map_all_dependencies(config):
         deps_json_file = os.path.join(config.temp_dir, 'deps.json')
         logger.info(f"Mapping project's dependencies to {deps_json_file}")
 
-        install_ref = config.project_path
-        if config.main_conan_package:
-            install_ref = config.main_conan_package
-            if '@' not in install_ref:
-                install_ref = install_ref + '@'
-
         if config.include_build_requires_packages:
-            output = subprocess.check_output(f"conan info {install_ref} --paths --dry-build --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
+            output = execute_command(f"conan info {config.project_path} --paths --dry-build --json {deps_json_file}", logger)
         else:
-            output = subprocess.check_output(f"conan info {install_ref} --paths --json {deps_json_file}", shell=True, stderr=subprocess.STDOUT).decode()
+            output = execute_command(f"conan info {config.project_path} --paths --json {deps_json_file}", logger)
 
         logger.info(f'\n{output}')  # Todo add print of deps.json
 
@@ -175,10 +169,8 @@ def map_all_dependencies(config):
 def run_conan_install_command(config):
     """ Allocate the scanned project dependencies in the conanInstallFolder"""
     try:
-        # pathlib.Path(config.temp_dir).mkdir(parents=True, exist_ok=False)
         logger.info(f"conanRunPreStep is set to {config.conan_run_pre_step} - will run 'conan install --build' command.")
-        output = subprocess.check_output(f"conan install {config.project_path} --install-folder {config.temp_dir} --build", shell=True, stderr=subprocess.STDOUT).decode()
-        logger.info(output)
+        execute_command(f"conan install {config.project_path} --install-folder {config.temp_dir} --build", logger)
         logger.info(f"conan install --build completed , install folder : {config.temp_dir}")
     except subprocess.CalledProcessError as e:
         logger.error(e.output.decode())
@@ -223,11 +215,11 @@ def get_dependencies_from_download_source(config, source_folders_missing, conan_
 
             try:
                 logger.info(f"Going to run the following command : {conan_install_command}")
-                output = subprocess.check_output(conan_install_command, shell=True, stderr=subprocess.STDOUT).decode()
-                logger.info(output)
+                execute_command(conan_install_command, logger)
+
                 logger.info(f"Going to run the following command : {conan_source_command}")
-                output = subprocess.check_output(conan_source_command, shell=True, stderr=subprocess.STDOUT).decode()
-                logger.info(output)
+                execute_command(conan_source_command, logger)
+
                 packages_list.append(package_directory)
                 dependencies_list_dict.get(item)['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
             except subprocess.CalledProcessError as e:
@@ -249,8 +241,7 @@ def get_dependencies_from_download_source(config, source_folders_missing, conan_
                     logger.info(f"{item} conandata.yml is missing from {export_folder} - will try to get with conan source command")
                     try:
                         logger.info(f"Going to run the following command : {conan_source_command}")
-                        output = subprocess.check_output(conan_source_command, shell=True, stderr=subprocess.STDOUT).decode()
-                        logger.info(output)
+                        execute_command(conan_source_command, logger)
                         package_directory_returned = download_source_package(package_directory, package_directory, item)
                         packages_list.append(package_directory_returned)
                         dependencies_list_dict.get(item)['conandata_yml'] = os.path.join(package_directory, 'conandata.yml')
@@ -645,21 +636,9 @@ def remove_previous_run_temp_folder(conf):
         remove_folder(pattern)
 
 
-def create_logger(args):
-    global logger
-    logger = logging.getLogger(__tool_name__)
-    logger.setLevel(logging.DEBUG if bool(os.environ.get("DEBUG", 0)) else logging.INFO)
-
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S')
-
-    if args.get('log_file_path'):
-        fh = RotatingFileHandler(Path(args.get('log_file_path'), f'conan_scanner_log_{DATE_TIME_NOW}.log'))
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-
-    sh = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(formatter)
-    logger.addHandler(sh)
+def get_source_files_from_conan_main_package(config):
+    if config.is_conanfilepy:
+        execute_command(f"conan source {config.project_path} --source-folder {config.temp_dir}", logger)
 
 
 def create_configuration() -> Config:
@@ -679,7 +658,7 @@ def create_configuration() -> Config:
         optional.add_argument('-p', "--" + CONAN_RUN_PRE_STEP, help="run conan install --build", dest='conan_run_pre_step', required=False, default=CONAN_RUN_PRE_STEP_DEFAULT, type=str2bool)
         optional.add_argument('-g', "--" + CHANGE_ORIGIN_LIBRARY, help="True will attempt to match libraries per package name and version", dest='change_origin_library', required=False, default=CHANGE_ORIGIN_LIBRARY_DEFAULT, type=str2bool)
         optional.add_argument('-f', "--" + CONAN_PROFILE_NAME, help="The name of the conan profile", dest='conan_profile_name', required=False, default=CONAN_PROFILE_NAME_DEFAULT)
-        optional.add_argument('-m', "--" + MAIN_CONAN_PACKAGE, help="Include the package_name/package_version@user/channel of the project's conanfile package", dest='main_conan_package', required=False, default=MAIN_CONAN_PACKAGE_DEFAULT)
+        optional.add_argument('-m', "--" + RESOLVE_CONAN_MAIN_PACKAGE, help="Retrieve and scan the source files of conanfile.py recipe main package ", dest='resolve_conan_main_package', required=False, default=RESOLVE_CONAN_MAIN_PACKAGE_DEFAULT, type=str2bool)
         required.add_argument('-u', '--' + WS_URL, help='The WhiteSource organization url', required=True, dest='ws_url')
         required.add_argument('-k', '--' + USER_KEY, help='The admin user key', required=True, dest='user_key')
         required.add_argument('-t', '--' + ORG_TOKEN, help='The organization token', required=True, dest='org_token')
@@ -702,7 +681,8 @@ def create_configuration() -> Config:
 
         args_dict = vars(parser.parse_args())
 
-        create_logger(args_dict)
+        global logger
+        logger = create_logger(args_dict)
 
         logger.info('Finished analyzing arguments.')
         return args_dict
@@ -728,6 +708,9 @@ def main():
 
     if config.conan_run_pre_step:
         run_conan_install_command(config)
+
+    if config.resolve_conan_main_package:
+        get_source_files_from_conan_main_package(config)
 
     dirs_to_scan = [config.project_path]
 
