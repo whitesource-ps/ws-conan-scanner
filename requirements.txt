@@ -1,4 +1,4 @@
-setuptools~=57.0.0
+setuptools~=63.1.0
 requests~=2.27.0
 configparser~=5.0.2
 DateTime~=4.3
