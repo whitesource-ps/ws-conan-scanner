@@ -5,4 +5,4 @@ DateTime~=4.3
 PyYAML~=5.4.1
 ws-sdk~=0.10.6
 urllib3~=1.26.7
-numpy~=1.21.5
+numpy==1.21.5
