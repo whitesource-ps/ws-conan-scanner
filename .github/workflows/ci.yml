@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - '**'
+      - '!ws-iac-scan-results/**'
     tags:
       - '*'
   schedule:
